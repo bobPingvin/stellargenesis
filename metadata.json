@@ -1,0 +1,7 @@
+{
+  "name": "StellarGenesis",
+  "description": "Интерактивный симулятор эволюции звезд, термоядерного синтеза и гравитационного коллапса на Canvas и Tailwind.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
