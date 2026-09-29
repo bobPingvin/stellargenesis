@@ -702,11 +702,19 @@ export function stepPhysics(
   // Step 2: New accelerations at updated positions (with tidal disruption and shredding)
   computeAccelerations(bodies, G, eps, dt, particles, onRemoveBody, onNotification);
 
-  // Step 3: Velocity Verlet second half-step
+  // Step 3: Velocity Verlet second half-step with relativistic speed clamping
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i];
     b.vx += 0.5 * (oldAccels[i].ax + b.ax) * dt;
     b.vy += 0.5 * (oldAccels[i].ay + b.ay) * dt;
+
+    // Relativistic velocity clamping: v <= SPEED_OF_LIGHT (60.0 px/s)
+    const speed = Math.hypot(b.vx, b.vy);
+    if (speed > SPEED_OF_LIGHT) {
+      const factor = SPEED_OF_LIGHT / speed;
+      b.vx *= factor;
+      b.vy *= factor;
+    }
   }
 
   // Step 4: Particles and Gas accretion
