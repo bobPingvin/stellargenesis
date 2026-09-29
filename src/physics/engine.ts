@@ -152,6 +152,7 @@ export function createBody(params: Partial<CelestialBody> = {}): CelestialBody {
     stellarAge: params.stellarAge ?? 0,
     evolutionStage: initialEvolutionStage,
     radius: initialRadius,
+    realRadiusKm: params.realRadiusKm,
     targetRadius: initialRadius,
     radialVelocity: 0,
     Tcore: params.Tcore ?? (12.0 + mass * 3.5),
@@ -172,7 +173,20 @@ export function createBody(params: Partial<CelestialBody> = {}): CelestialBody {
     P_gas: 0.5,
     P_rad: 0.5,
     balanceRatio: 1.0,
-    trail: []
+    trail: [],
+
+    // Planetary identification & visuals
+    planetKey: params.planetKey,
+    isPlanet: params.isPlanet ?? (params.planetKey !== undefined && params.planetKey !== 'sun' && params.planetKey !== 'generic_star' && params.planetKey !== 'black_hole' && params.planetKey !== 'pulsar'),
+    hasRings: params.hasRings ?? false,
+    ringInnerRadius: params.ringInnerRadius,
+    ringOuterRadius: params.ringOuterRadius,
+    ringColor: params.ringColor,
+    parentBodyId: params.parentBodyId,
+    axialTilt: params.axialTilt ?? 0,
+    rotationPeriodHours: params.rotationPeriodHours ?? 24,
+    atmosphereColor: params.atmosphereColor,
+    customDescription: params.customDescription
   };
 }
 
@@ -587,18 +601,28 @@ function computeAccelerations(
 
 /**
  * Visual reference velocity for Relativistic Doppler effect in 2D simulation coordinates
+ * Scaled so orbital & high-speed flybys produce striking relativistic blueshift/redshift
  */
-export const VISUAL_C_DOPPLER = 7.5;
+export const VISUAL_C_DOPPLER = 4.2;
 
 /**
  * Calculates relativistic Doppler redshift/blueshift parameter z from line-of-sight velocity vx
- * z < 0: Blueshift (approaching / moving left relative to viewport)
- * z > 0: Redshift (receding / moving right relative to viewport)
+ * z < 0: Blueshift (approaching / moving towards observer)
+ * z > 0: Redshift (receding / moving away from observer)
  */
 export function computeDopplerFromVx(vx: number): number {
-  const beta = Math.max(-0.92, Math.min(0.92, vx / VISUAL_C_DOPPLER));
+  const beta = Math.max(-0.95, Math.min(0.95, vx / VISUAL_C_DOPPLER));
   const delta = Math.sqrt((1 - beta) / (1 + beta));
   return (1 / delta) - 1;
+}
+
+/**
+ * Calculates relativistic Doppler beaming intensity factor (beaming ~ delta^3 to delta^4)
+ * Approaching matter is significantly amplified in brightness; receding matter is dimmed
+ */
+export function getDopplerBeamingIntensity(z: number): number {
+  const delta = 1 / (1 + z);
+  return Math.max(0.3, Math.min(2.8, Math.pow(delta, 2.2)));
 }
 
 /**
@@ -609,32 +633,32 @@ export function computeDopplerShift(b: CelestialBody): number {
 }
 
 /**
- * Transforms an RGB/Hex/RGBA color by relativistic Doppler shift
- * z < 0: Blueshift (shifts to electric cyan/blue/white-hot, boosting luminosity)
- * z > 0: Redshift (shifts to warm amber/crimson/deep red, dimming luminosity)
+ * Transforms an RGB/Hex/RGBA color by relativistic Doppler shift with striking visual contrast
+ * z < 0: Blueshift (shifts to electric cyan/violet/white-hot, boosting luminosity)
+ * z > 0: Redshift (shifts to fiery amber/crimson/deep infrared, dimming luminosity)
  */
 export function applyDopplerToColor(colorStr: string, z: number): string {
-  if (Math.abs(z) < 0.04) return colorStr;
+  if (Math.abs(z) < 0.03) return colorStr;
 
-  // Blueshift (Approaching matter)
-  if (z < -0.04) {
-    const shift = Math.min(1.0, Math.abs(z) * 1.6);
+  // Blueshift (Approaching matter with relativistic beaming)
+  if (z < -0.03) {
+    const shift = Math.min(1.0, Math.abs(z) * 2.2);
     if (colorStr.startsWith('rgba')) {
-      return shift > 0.6 ? 'rgba(147, 197, 253, 0.95)' : shift > 0.3 ? 'rgba(56, 189, 248, 0.85)' : 'rgba(96, 165, 250, 0.75)';
+      return shift > 0.65 ? 'rgba(224, 242, 254, 0.98)' : shift > 0.35 ? 'rgba(56, 189, 248, 0.90)' : 'rgba(96, 165, 250, 0.85)';
     }
-    if (shift > 0.65) return '#e0f2fe'; // near-incandescent white-blue
-    if (shift > 0.35) return '#38bdf8'; // electric cyan
+    if (shift > 0.70) return '#ffffff'; // blinding incandescent white-blue
+    if (shift > 0.40) return '#38bdf8'; // electric cyan
     return '#60a5fa'; // brilliant azure
   }
 
-  // Redshift (Receding matter)
-  const shift = Math.min(1.0, z * 1.6);
+  // Redshift (Receding matter with relativistic dimming)
+  const shift = Math.min(1.0, z * 2.2);
   if (colorStr.startsWith('rgba')) {
-    return shift > 0.6 ? 'rgba(185, 28, 28, 0.65)' : shift > 0.3 ? 'rgba(239, 68, 68, 0.75)' : 'rgba(249, 115, 22, 0.85)';
+    return shift > 0.65 ? 'rgba(127, 29, 29, 0.65)' : shift > 0.35 ? 'rgba(220, 38, 38, 0.75)' : 'rgba(245, 158, 11, 0.85)';
   }
-  if (shift > 0.65) return '#991b1b'; // deep relativistic crimson
-  if (shift > 0.35) return '#ef4444'; // intense red
-  return '#f97316'; // amber orange
+  if (shift > 0.70) return '#7f1d1d'; // deep infrared ruby
+  if (shift > 0.40) return '#ef4444'; // intense scarlet red
+  return '#f59e0b'; // amber orange
 }
 
 /**
@@ -699,6 +723,11 @@ function updateStarInternalThermodynamics(
   settings: SimulationSettings,
   onNotification?: (title: string, body: string, type: 'supernova' | 'blackhole' | 'info') => void
 ) {
+  // Planets do not undergo stellar nuclear fusion or collapse
+  if (b.isPlanet) {
+    return;
+  }
+
   // Remnants check
   if (b.remnantType === 'black_hole') {
     // Continuous steady accretion from interstellar medium, radiation, and quantum vacuum

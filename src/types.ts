@@ -15,6 +15,35 @@ export type StellarEvolutionStage =
 
 export type SpectralClass = 'O' | 'B' | 'A' | 'F' | 'G' | 'K' | 'M' | 'RED_GIANT' | 'WHITE_DWARF' | 'PULSAR' | 'BLACK_HOLE';
 
+export type PlanetKey =
+  | 'sun'
+  | 'mercury'
+  | 'venus'
+  | 'earth'
+  | 'moon'
+  | 'mars'
+  | 'phobos'
+  | 'deimos'
+  | 'ceres'
+  | 'vesta'
+  | 'jupiter'
+  | 'io'
+  | 'europa'
+  | 'ganymede'
+  | 'callisto'
+  | 'saturn'
+  | 'titan'
+  | 'enceladus'
+  | 'uranus'
+  | 'titania'
+  | 'neptune'
+  | 'triton'
+  | 'pluto'
+  | 'charon'
+  | 'generic_star'
+  | 'black_hole'
+  | 'pulsar';
+
 export interface ChemicalComposition {
   H: number;   // Hydrogen fraction (0..1)
   He: number;  // Helium fraction (0..1)
@@ -38,6 +67,7 @@ export interface CelestialBody {
   ay: number;
   mass: number;           // in Solar Masses M☉
   radius: number;         // visual simulation radius
+  realRadiusKm?: number;  // authentic physical radius in kilometers (e.g. 6371 km for Earth, 1737 km for Moon)
   targetRadius: number;
   radialVelocity: number;
   Tcore: number;          // Core temperature in Millions Kelvin (10^6 K)
@@ -68,6 +98,19 @@ export interface CelestialBody {
   tidalStretch?: { factor: number; angle: number };
   dopplerShift?: number; // relativistic redshift/blueshift z
 
+  // Specific Planet & Moon Visual Identity
+  planetKey?: PlanetKey;
+  isPlanet?: boolean;
+  hasRings?: boolean;
+  ringInnerRadius?: number;
+  ringOuterRadius?: number;
+  ringColor?: string;
+  parentBodyId?: string;
+  axialTilt?: number;            // in radians
+  rotationPeriodHours?: number;  // in Earth hours
+  atmosphereColor?: string;
+  customDescription?: string;
+
   trail: TrailPoint[];
 }
 
@@ -96,7 +139,7 @@ export interface CameraState {
   zoom: number;
 }
 
-export type ToolType = 'select' | 'move' | 'spawn_star' | 'spawn_gas' | 'pump_mass' | 'spawn_blackhole';
+export type ToolType = 'select' | 'move' | 'spawn_star' | 'spawn_gas' | 'pump_mass' | 'spawn_blackhole' | 'spawn_pulsar';
 
 export type NebulaPresetType = 'emission_h2' | 'reflection_blue' | 'planetary_ring' | 'supernova_remnant' | 'proto_stellar';
 
@@ -109,6 +152,7 @@ export interface NebulaConfig {
 
 export type PresetId = 
   | 'solar'
+  | 'crab_pulsar'
   | 'massive_sn'
   | 'hyper_bh'
   | 'binary_accretion'

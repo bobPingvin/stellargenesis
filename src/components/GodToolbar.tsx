@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Target, Move, Sparkles, CloudDrizzle, Syringe, CircleDot, Sliders, Info, Radio, Layers, Flame } from 'lucide-react';
+import { Target, Move, Sparkles, CloudDrizzle, Syringe, CircleDot, Zap, Sliders, Info, Radio, Layers, Flame } from 'lucide-react';
 import { ToolType, SimulationSettings, NebulaConfig } from '../types';
 import { NEBULA_PRESETS } from '../physics/perlinNoise';
 
@@ -71,6 +71,12 @@ export const GodToolbar: React.FC<GodToolbarProps> = ({
       label: 'Черная Дыра',
       subtext: 'Сингулярность с TDE [6]',
       icon: <CircleDot size={17} className="text-purple-400" />
+    },
+    {
+      id: 'spawn_pulsar' as ToolType,
+      label: 'Создать Пульсар',
+      subtext: 'Релятивистские пучки [7]',
+      icon: <Zap size={17} className="text-cyan-300" />
     }
   ];
 

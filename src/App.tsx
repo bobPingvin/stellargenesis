@@ -18,6 +18,7 @@ import { QuickDock } from './components/QuickDock';
 import { StarInspector } from './components/StarInspector';
 import { EvolutionGuideModal } from './components/EvolutionGuideModal';
 import { NotificationToast } from './components/NotificationToast';
+import { Celestial3DViewer } from './components/Celestial3DViewer';
 
 export default function App() {
   // Core simulation state
@@ -25,6 +26,7 @@ export default function App() {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [selectedBodyId, setSelectedBodyId] = useState<string | null>(null);
   const [followingBodyId, setFollowingBodyId] = useState<string | null>(null);
+  const [is3DInspectorOpen, setIs3DInspectorOpen] = useState<boolean>(false);
 
   // Live refs to current state for snapshot capturing
   const bodiesRef = useRef(bodies);
@@ -422,6 +424,8 @@ export default function App() {
         setCurrentTool('pump_mass');
       } else if (e.key === '6') {
         setCurrentTool('spawn_blackhole');
+      } else if (e.key === '7') {
+        setCurrentTool('spawn_pulsar');
       } else if (e.code === 'KeyF' || keyLower === 'f' || keyLower === 'а') {
         handleToggleFollow();
       } else if (e.code === 'KeyM' || keyLower === 'm' || keyLower === 'ь') {
@@ -447,8 +451,12 @@ export default function App() {
         setCamera({ x: 0, y: 0, zoom: 1.0 });
         setFollowingBodyId(null);
       } else if (e.code === 'Escape') {
-        setIsGuideOpen(false);
-        setSelectedBodyId(null);
+        if (is3DInspectorOpen) {
+          setIs3DInspectorOpen(false);
+        } else {
+          setIsGuideOpen(false);
+          setSelectedBodyId(null);
+        }
       }
     };
 
@@ -486,6 +494,10 @@ export default function App() {
         onPumpMass={handlePumpMass}
         onStopVelocity={handleStopVelocity}
         onSelectTool={setCurrentTool}
+        onInspect3D={(b) => {
+          setSelectedBodyId(b.id);
+          setIs3DInspectorOpen(true);
+        }}
       />
 
       {/* Slide-out Flyout Menu (Left drawer housing all tools, scenarios, nebula generator & settings) */}
@@ -558,6 +570,7 @@ export default function App() {
         onUpdateSpawnMass={setSpawnMass}
         isPaused={isPaused}
         onTogglePause={() => setIsPaused(prev => !prev)}
+        onOpen3D={() => setIs3DInspectorOpen(true)}
       />
 
       {/* Detailed Star Inspector (Rendered ONLY when an object is selected) */}
@@ -570,7 +583,21 @@ export default function App() {
         onTriggerSupernova={handleTriggerSupernova}
         onDeleteBody={handleDeleteBody}
         onClose={() => handleSetSelectedBody(null)}
+        onOpen3D={() => setIs3DInspectorOpen(true)}
       />
+
+      {/* 3D Celestial Inspection Fullscreen Overlay */}
+      {is3DInspectorOpen && selectedBody && (
+        <div className="absolute inset-0 z-40 animate-in fade-in duration-300">
+          <Celestial3DViewer
+            body={selectedBody}
+            allBodies={bodies}
+            onSelectBody={(b) => setSelectedBodyId(b.id)}
+            onClose={() => setIs3DInspectorOpen(false)}
+            isPaused={isPaused}
+          />
+        </div>
+      )}
 
       {/* Educational Evolution Guide Modal */}
       <EvolutionGuideModal

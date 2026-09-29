@@ -20,7 +20,8 @@ import {
   Pause,
   Sliders,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Compass
 } from 'lucide-react';
 import { ToolType, CelestialBody } from '../types';
 
@@ -39,6 +40,7 @@ interface QuickDockProps {
   isPaused: boolean;
   onTogglePause: () => void;
   onOpenMenu?: () => void;
+  onOpen3D?: () => void;
 }
 
 export const QuickDock: React.FC<QuickDockProps> = ({
@@ -55,7 +57,8 @@ export const QuickDock: React.FC<QuickDockProps> = ({
   onUpdateSpawnMass,
   isPaused,
   onTogglePause,
-  onOpenMenu
+  onOpenMenu,
+  onOpen3D
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showMassSlider, setShowMassSlider] = useState<boolean>(false);
@@ -168,6 +171,18 @@ export const QuickDock: React.FC<QuickDockProps> = ({
             <span className="text-[11px]">{followingBody?.id === selectedBody.id ? 'Слежение вкл' : 'Следить'}</span>
             <span className="text-[9px] opacity-60 ml-0.5">[F]</span>
           </button>
+
+          {/* 3D Orbit Inspection Mode */}
+          {onOpen3D && (
+            <button
+              onClick={onOpen3D}
+              title="3D Осмотр объекта (Сфера & Орбита)"
+              className="px-2 py-1 rounded-xl bg-cyan-950/80 border border-cyan-500/50 text-cyan-200 hover:bg-cyan-900 text-xs font-mono transition flex items-center gap-1"
+            >
+              <Compass size={12} className="text-cyan-400" />
+              <span className="text-[11px]">3D Вид</span>
+            </button>
+          )}
 
           {/* Quick Mass Pump */}
           {selectedBody.remnantType === 'black_hole' ? (

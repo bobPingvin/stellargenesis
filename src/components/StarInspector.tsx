@@ -6,6 +6,7 @@
 import React from 'react';
 import { CelestialBody } from '../types';
 import { SPECTRAL_DATA, getSpectralClass, SPEED_OF_LIGHT, VISUAL_C_DOPPLER } from '../physics/engine';
+import { formatRadiusKm, getRadiusRatioToEarth } from '../physics/celestialScales';
 import { Eye, Flame, Trash2, Zap, HelpCircle, Activity, Sparkles, X, Orbit, Compass } from 'lucide-react';
 
 interface StarInspectorProps {
@@ -17,6 +18,7 @@ interface StarInspectorProps {
   onTriggerSupernova: () => void;
   onDeleteBody: () => void;
   onClose?: () => void;
+  onOpen3D?: () => void;
 }
 
 export const StarInspector: React.FC<StarInspectorProps> = ({
@@ -27,7 +29,8 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   onFeedBlackHole,
   onTriggerSupernova,
   onDeleteBody,
-  onClose
+  onClose,
+  onOpen3D
 }) => {
   // If no body is selected, don't show inspector to keep interface completely clean
   if (!selectedBody) {
@@ -115,6 +118,17 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
           )}
         </div>
       </div>
+
+      {/* 3D Orbit Inspection Mode Quick Launcher */}
+      {onOpen3D && (
+        <button
+          onClick={onOpen3D}
+          className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-600/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-500 text-white font-mono text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/50 transition border border-cyan-400/40 cursor-pointer active:scale-[0.98]"
+        >
+          <Compass size={14} className="text-cyan-200 animate-spin" style={{ animationDuration: '10s' }} />
+          <span>3D Осмотр объекта (Сфера & Орбита)</span>
+        </button>
+      )}
 
       {/* Spectral Banner */}
       <div
@@ -334,14 +348,25 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
         <div className="glass-card rounded-xl p-2.5">
           <div className="text-[10px] text-slate-400">Масса (M):</div>
           <div className="text-sm font-bold text-slate-100 mt-0.5 flex items-baseline gap-1">
-            <span>{b.mass.toFixed(2)}</span> <span className="text-[10px] text-slate-400">M☉</span>
+            {b.isPlanet && b.mass < 0.05 ? (
+              <>
+                <span>{(b.mass * 333000).toFixed(1)}</span> <span className="text-[10px] text-slate-400">M⊕</span>
+              </>
+            ) : (
+              <>
+                <span>{b.mass.toFixed(2)}</span> <span className="text-[10px] text-slate-400">M☉</span>
+              </>
+            )}
           </div>
         </div>
 
         <div className="glass-card rounded-xl p-2.5">
           <div className="text-[10px] text-slate-400">Радиус (R):</div>
-          <div className="text-sm font-bold text-slate-100 mt-0.5 flex items-baseline gap-1">
-            <span>{(b.radius / 10.0).toFixed(2)}</span> <span className="text-[10px] text-slate-400">R☉</span>
+          <div className="text-xs font-bold text-slate-100 mt-0.5 flex flex-col">
+            <span className="text-emerald-400">{formatRadiusKm(b)}</span>
+            <span className="text-[10px] text-slate-400 font-normal">
+              {b.isPlanet ? `${getRadiusRatioToEarth(b).toFixed(2)} R⊕` : `${(b.radius / 10.0).toFixed(2)} R☉`}
+            </span>
           </div>
         </div>
 

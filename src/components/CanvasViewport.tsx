@@ -20,6 +20,7 @@ import {
 import { renderProceduralCosmos, SECTOR_SIZE } from '../physics/proceduralUniverse';
 import { renderSpacetimeFabric, GLOBAL_ACCRETION_POOL } from '../physics/gravitationalLensing';
 import { GravitationalLensingShader, BlackHoleScreenData } from '../physics/screenSpaceLensingShader';
+import { renderDistinctCelestialBody } from '../physics/planetVisuals';
 import { sound } from '../physics/audio';
 import {
   Crosshair,
@@ -64,6 +65,7 @@ interface CanvasViewportProps {
   onPumpMass?: () => void;
   onStopVelocity?: () => void;
   onSelectTool?: (tool: ToolType) => void;
+  onInspect3D?: (body: CelestialBody) => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -92,7 +94,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onDeleteBody,
   onPumpMass,
   onStopVelocity,
-  onSelectTool
+  onSelectTool,
+  onInspect3D
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -483,7 +486,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         inViewCount++;
 
         const scr = worldToScreen(b.x, b.y, curCamera, width, height);
-        const r = Math.max(3.5, b.radius * curCamera.zoom);
+        // Genuine proportional sizing: Moon (1.9) is visibly 3.7x smaller than Earth (7.0)
+        const r = Math.max(1.0, b.radius * curCamera.zoom);
 
         // Selection ring
         if (stateRef.current.selectedBody?.id === b.id) {
@@ -664,52 +668,132 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         const stretchFac = hasTidalStretch ? b.tidalStretch!.factor : 1.0;
         const stretchAng = hasTidalStretch ? b.tidalStretch!.angle : 0;
 
-        // --- NEUTRON STAR / PULSAR ---
+        // --- NEUTRON STAR / PULSAR (STUNNING RELATIVISTIC BEAMS & MAGNETIC DIPOLES) ---
         if (b.remnantType === 'pulsar') {
           ctx.save();
-          ctx.globalCompositeOperation = 'lighter';
+          const tSec = timestamp * 0.001;
 
-          // Relativistic rotating magnetic jets
-          const beamLen = r * 14;
-          const beamAngle = b.rotationAngle;
-
+          // 1. Dipolar Magnetic Field Loops (closed flux lines)
           ctx.save();
+          ctx.globalCompositeOperation = 'screen';
           ctx.translate(scr.x, scr.y);
-          ctx.rotate(beamAngle);
+          ctx.rotate(b.rotationAngle);
+          for (let l = 1; l <= 3; l++) {
+            const loopW = r * (2.0 + l * 0.8);
+            const loopH = r * (3.2 + l * 1.2);
+            ctx.strokeStyle = l % 2 === 0 ? 'rgba(56, 189, 248, 0.28)' : 'rgba(192, 132, 252, 0.22)';
+            ctx.lineWidth = Math.max(1.0, 1.3 * curCamera.zoom);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, loopW, loopH, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.restore();
 
+          // 2. Relativistic Rotating Synchrotron Jets (Знаменитые коллимированные пучки)
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.translate(scr.x, scr.y);
+          ctx.rotate(b.rotationAngle);
+
+          const beamLen = Math.max(70, r * 18 * curCamera.zoom);
+          const coneEndW = Math.max(12, r * 3.5 * curCamera.zoom);
+
+          // Outer Synchrotron Plasma Sheath
           const jetGrad = ctx.createLinearGradient(0, -beamLen, 0, beamLen);
           jetGrad.addColorStop(0, 'rgba(0,0,0,0)');
-          jetGrad.addColorStop(0.35, 'rgba(56, 189, 248, 0.85)');
+          jetGrad.addColorStop(0.25, 'rgba(192, 132, 252, 0.4)');
+          jetGrad.addColorStop(0.42, 'rgba(56, 189, 248, 0.9)');
           jetGrad.addColorStop(0.5, '#ffffff');
-          jetGrad.addColorStop(0.65, 'rgba(56, 189, 248, 0.85)');
+          jetGrad.addColorStop(0.58, 'rgba(56, 189, 248, 0.9)');
+          jetGrad.addColorStop(0.75, 'rgba(192, 132, 252, 0.4)');
           jetGrad.addColorStop(1, 'rgba(0,0,0,0)');
 
           ctx.fillStyle = jetGrad;
           ctx.beginPath();
-          ctx.moveTo(-r * 0.4, 0);
-          ctx.lineTo(-r * 1.8, -beamLen);
-          ctx.lineTo(r * 1.8, -beamLen);
-          ctx.lineTo(r * 0.4, 0);
-          ctx.lineTo(r * 1.8, beamLen);
-          ctx.lineTo(-r * 1.8, beamLen);
+          ctx.moveTo(-r * 0.5, 0);
+          ctx.lineTo(-coneEndW, -beamLen);
+          ctx.lineTo(coneEndW, -beamLen);
+          ctx.lineTo(r * 0.5, 0);
+          ctx.lineTo(coneEndW, beamLen);
+          ctx.lineTo(-coneEndW, beamLen);
           ctx.closePath();
           ctx.fill();
+
+          // Laser Core Filament
+          const coreGrad = ctx.createLinearGradient(0, -beamLen, 0, beamLen);
+          coreGrad.addColorStop(0, 'rgba(56, 189, 248, 0)');
+          coreGrad.addColorStop(0.35, '#ffffff');
+          coreGrad.addColorStop(0.5, '#ffffff');
+          coreGrad.addColorStop(0.65, '#ffffff');
+          coreGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+          ctx.fillStyle = coreGrad;
+          ctx.beginPath();
+          ctx.moveTo(-r * 0.25, 0);
+          ctx.lineTo(-coneEndW * 0.3, -beamLen);
+          ctx.lineTo(coneEndW * 0.3, -beamLen);
+          ctx.lineTo(r * 0.25, 0);
+          ctx.lineTo(coneEndW * 0.3, beamLen);
+          ctx.lineTo(-coneEndW * 0.3, beamLen);
+          ctx.closePath();
+          ctx.fill();
+
+          // Standing Magnetohydrodynamic Shock Diamonds
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.2;
+          for (const dir of [1, -1]) {
+            for (let s = 1; s <= 4; s++) {
+              const sDist = (s / 5) * beamLen;
+              const sW = (s / 5) * coneEndW * 0.7 + 2;
+              ctx.save();
+              ctx.translate(0, dir * sDist);
+              ctx.beginPath();
+              ctx.moveTo(-sW, 0);
+              ctx.lineTo(0, -sW * 1.3);
+              ctx.lineTo(sW, 0);
+              ctx.lineTo(0, sW * 1.3);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+
           ctx.restore();
 
-          // Pulsar core (with stretch if applicable)
+          // 3. Ultra-Dense Neutron Core & High-Energy Magnetosphere Halo
           ctx.save();
           ctx.translate(scr.x, scr.y);
           if (hasTidalStretch) ctx.rotate(stretchAng);
 
+          // Magnetosphere Glow Halo
+          ctx.globalCompositeOperation = 'screen';
+          const auraGrad = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 3.0);
+          auraGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+          auraGrad.addColorStop(0.3, 'rgba(56, 189, 248, 0.8)');
+          auraGrad.addColorStop(0.7, 'rgba(168, 85, 247, 0.35)');
+          auraGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = auraGrad;
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 3.0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Superconducting Core
+          ctx.globalCompositeOperation = 'source-over';
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
           ctx.ellipse(0, 0, r * stretchFac, r / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
           ctx.fill();
 
           ctx.strokeStyle = '#38bdf8';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2.0;
+          ctx.stroke();
+
+          // Outer quantum boundary rim
+          ctx.strokeStyle = 'rgba(192, 132, 252, 0.85)';
+          ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.ellipse(0, 0, r * 1.8 * stretchFac, (r * 1.8) / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, r * 1.45 * stretchFac, (r * 1.45) / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
           ctx.stroke();
 
           ctx.restore();
@@ -717,69 +801,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           continue;
         }
 
-        // --- STANDARD STAR / BODY WITH TIDAL STRETCHING & SPECTRAL EMISSION ---
-        const specKey = getSpectralClass(b);
-        const specInfo = SPECTRAL_DATA[specKey];
-
-        // Apply Doppler color shift if enabled
-        const starColor = curSettings.dopplerEffect
-          ? applyDopplerToColor(specInfo.color, b.dopplerShift || 0)
-          : specInfo.color;
-        const starHalo = curSettings.dopplerEffect
-          ? applyDopplerToColor(specInfo.halo, b.dopplerShift || 0)
-          : specInfo.halo;
-
-        ctx.save();
-        ctx.translate(scr.x, scr.y);
-        if (hasTidalStretch) {
-          ctx.rotate(stretchAng);
-        }
-
-        // Atmospheric / Corona Glow
-        ctx.globalCompositeOperation = 'lighter';
-        const glowGrad = ctx.createRadialGradient(
-          0, 0, r * 0.3,
-          0, 0, r * 3.5 * Math.sqrt(stretchFac)
-        );
-        glowGrad.addColorStop(0, starColor);
-        glowGrad.addColorStop(0.4, starHalo);
-        glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-        ctx.fillStyle = glowGrad;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, r * 3.5 * stretchFac, (r * 3.5) / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Trailing plasma streamer when heavily stretched / spaghettified
-        if (stretchFac > 1.8) {
-          const streamerGrad = ctx.createLinearGradient(-r * stretchFac * 1.5, 0, r * stretchFac * 1.5, 0);
-          streamerGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-          streamerGrad.addColorStop(0.3, starHalo);
-          streamerGrad.addColorStop(0.5, '#ffffff');
-          streamerGrad.addColorStop(0.8, starColor);
-          streamerGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-          ctx.fillStyle = streamerGrad;
-          ctx.beginPath();
-          ctx.ellipse(0, 0, r * stretchFac * 1.6, (r * 0.7) / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Stellar Core Sphere / Ellipsoid
-        const coreGrad = ctx.createRadialGradient(
-          -r * 0.25 * stretchFac, -r * 0.25, r * 0.1,
-          0, 0, r * Math.sqrt(stretchFac)
-        );
-        coreGrad.addColorStop(0, '#ffffff');
-        coreGrad.addColorStop(0.65, starColor);
-        coreGrad.addColorStop(1, starColor);
-
-        ctx.fillStyle = coreGrad;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, r * stretchFac, r / Math.sqrt(stretchFac), 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
+        // --- DISTINCT AUTHENTIC PLANET / STAR / CELESTIAL RENDERING ---
+        renderDistinctCelestialBody(ctx, b, scr, r, curCamera.zoom, curSettings, timestamp * 0.0012);
       }
 
       if (timestamp - lastHudUpdate > 250) {
@@ -1050,6 +1073,42 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   // Camera Pan state
   const panRef = useRef({ isPanning: false, lastX: 0, lastY: 0 });
 
+  // Smooth camera zoom and focus animation
+  const animateCameraToBody = (target: CelestialBody, onFinish?: () => void) => {
+    const startX = camera.x;
+    const startY = camera.y;
+    const startZoom = camera.zoom;
+    const targetX = target.x;
+    const targetY = target.y;
+    // Calculate targeted zoom based on body size
+    const targetZoom = Math.max(1.8, Math.min(3.8, 48 / Math.max(8, target.radius)));
+    const startTime = performance.now();
+    const duration = 400; // ms
+
+    const stepAnim = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1.0, elapsed / duration);
+      // Smooth cubic ease-in-out
+      const ease = progress < 0.5
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      setCamera(prev => ({
+        ...prev,
+        x: startX + (targetX - startX) * ease,
+        y: startY + (targetY - startY) * ease,
+        zoom: startZoom + (targetZoom - startZoom) * ease
+      }));
+
+      if (progress < 1.0) {
+        requestAnimationFrame(stepAnim);
+      } else {
+        if (onFinish) onFinish();
+      }
+    };
+    requestAnimationFrame(stepAnim);
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -1190,6 +1249,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       if (draggedBodyRef.current.hasMoved) {
         const movedBody = bodies.find(b => b.id === draggedBodyRef.current?.id);
         onSaveSnapshot?.(`Перемещение: ${movedBody?.name || 'тела'}`);
+      } else {
+        // Pure click without dragging: select object for telemetry & actions without forcing 3D view
+        const clickedBody = bodies.find(b => b.id === draggedBodyRef.current?.id);
+        if (clickedBody) {
+          setSelectedBody(clickedBody);
+        }
       }
       draggedBodyRef.current = null;
       setActiveDragId(null);
@@ -1236,6 +1301,34 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           '🕳️ Черная дыра выведена в космос',
           `${bh.name} готова к гравитационному поглощению и спагеттификации материи.`,
           'blackhole'
+        );
+      } else if (currentTool === 'spawn_pulsar') {
+        onSaveSnapshot?.('Создание пульсара');
+        const pulsar = createBody({
+          name: `Пульсар PSR-${Math.floor(Math.random() * 8000 + 1000)}`,
+          x: dragVector.start.x,
+          y: dragVector.start.y,
+          vx,
+          vy,
+          mass: Math.min(2.2, Math.max(1.4, spawnMass)),
+          radius: 5.0,
+          realRadiusKm: 12.0,
+          remnantType: 'pulsar',
+          isRemnant: true,
+          evolutionStage: 'pulsar',
+          spinRate: 0.55,
+          Teff: 120000,
+          Tcore: 160.0,
+          composition: { H: 0.0, He: 0.0, C: 0.02, Fe: 0.98 },
+          customDescription: 'Сверхплотная нейтронная звезда с мощнейшими релятивистскими пучками синхротронного излучения и сильнейшим магнитным полем.'
+        });
+        setBodies(prev => [...prev, pulsar]);
+        setSelectedBody(pulsar);
+        sound.playSpawn();
+        onNotification(
+          '⚡ Пульсар выведен в космос',
+          `${pulsar.name} (${pulsar.mass.toFixed(2)} M☉) испускает релятивистские пучки (джеты) со скоростью света!`,
+          'info'
         );
       }
 
@@ -1330,6 +1423,30 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const curSectorX = Math.floor(camera.x / SECTOR_SIZE);
   const curSectorY = Math.floor(camera.y / SECTOR_SIZE);
 
+  // Double-click on object smoothly focuses and zooms camera on it
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const w = canvasRef.current.width;
+    const h = canvasRef.current.height;
+    const worldPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
+
+    let clicked: CelestialBody | null = null;
+    for (const b of bodies) {
+      const dx = b.x - worldPos.x;
+      const dy = b.y - worldPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) < Math.max(22, b.radius + 16)) {
+        clicked = b;
+        break;
+      }
+    }
+
+    if (clicked) {
+      setSelectedBody(clicked);
+      animateCameraToBody(clicked);
+    }
+  };
+
   // Dynamic cursor calculation
   const getCanvasCursorClass = () => {
     if (activeDragId) return 'cursor-grabbing';
@@ -1346,6 +1463,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
         onMouseLeave={() => { hoverPosRef.current = null; setHoveredBody(null); }}
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
@@ -1417,6 +1535,25 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
                 </span>
                 <span className="text-[9px] text-slate-500">[F]</span>
               </button>
+
+              {/* 3D Inspection Mode */}
+              {onInspect3D && (
+                <button
+                  onClick={() => {
+                    if (contextMenu.body) {
+                      onInspect3D(contextMenu.body);
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 hover:text-cyan-100 flex items-center justify-between transition text-left border border-cyan-500/30"
+                >
+                  <span className="flex items-center gap-2 font-medium">
+                    <Compass size={13} className="text-cyan-400 animate-spin" style={{ animationDuration: '8s' }} />
+                    <span>3D Осмотр объекта</span>
+                  </span>
+                  <span className="text-[9px] text-cyan-400 font-mono font-bold">[3D]</span>
+                </button>
+              )}
 
               {/* Mass Pump / Feed */}
               {contextMenu.body.remnantType === 'black_hole' ? (
