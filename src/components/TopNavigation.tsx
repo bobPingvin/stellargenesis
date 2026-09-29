@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { Play, Pause, SkipForward, Volume2, VolumeX, RotateCcw, BookOpen, Undo2, Redo2 } from 'lucide-react';
+import { Play, Pause, SkipForward, Volume2, VolumeX, RotateCcw, BookOpen, Undo2, Redo2, Save, FolderDown } from 'lucide-react';
 import { PresetId, SimulationSettings } from '../types';
 import { PRESETS_CATALOG } from '../physics/presets';
 import { sound } from '../physics/audio';
@@ -27,6 +27,9 @@ interface TopNavigationProps {
   onRedo?: () => void;
   undoTooltip?: string;
   redoTooltip?: string;
+  onSaveStorage?: () => void;
+  onLoadStorage?: () => void;
+  hasSavedStorage?: boolean;
 }
 
 export const TopNavigation: React.FC<TopNavigationProps> = ({
@@ -47,7 +50,10 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onUndo,
   onRedo,
   undoTooltip,
-  redoTooltip
+  redoTooltip,
+  onSaveStorage,
+  onLoadStorage,
+  hasSavedStorage = false
 }) => {
   const timeSpeeds = [0.5, 1, 5, 50, 1000];
 
@@ -112,6 +118,32 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
           >
             <Redo2 size={13} className={canRedo ? 'text-cyan-400' : 'text-slate-600'} />
             <span className="hidden md:inline text-[11px]">Повтор</span>
+          </button>
+        </div>
+
+        {/* LocalStorage Save / Load Controls */}
+        <div className="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800">
+          <button
+            onClick={onSaveStorage}
+            title="Сохранить систему в LocalStorage (Ctrl+S)"
+            className="px-2 py-1.5 text-xs rounded-lg font-mono font-medium transition flex items-center gap-1.5 text-slate-200 hover:text-emerald-400 hover:bg-slate-800 active:scale-95 cursor-pointer"
+          >
+            <Save size={13} className="text-emerald-400" />
+            <span className="hidden lg:inline text-[11px]">Сохранить</span>
+          </button>
+
+          <button
+            onClick={onLoadStorage}
+            disabled={!hasSavedStorage}
+            title={hasSavedStorage ? 'Загрузить сохраненную систему из LocalStorage' : 'В LocalStorage нет сохраненной системы'}
+            className={`px-2 py-1.5 text-xs rounded-lg font-mono font-medium transition flex items-center gap-1.5 ${
+              hasSavedStorage
+                ? 'text-slate-200 hover:text-purple-300 hover:bg-slate-800 active:scale-95 cursor-pointer'
+                : 'text-slate-600 opacity-40 cursor-not-allowed'
+            }`}
+          >
+            <FolderDown size={13} className={hasSavedStorage ? 'text-purple-400' : 'text-slate-600'} />
+            <span className="hidden lg:inline text-[11px]">Загрузить</span>
           </button>
         </div>
 

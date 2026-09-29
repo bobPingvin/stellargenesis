@@ -46,6 +46,16 @@ export default function App() {
   const [undoTooltip, setUndoTooltip] = useState<string>('');
   const [redoTooltip, setRedoTooltip] = useState<string>('');
 
+  // LocalStorage Persistence
+  const STORAGE_KEY = 'stellargenesis_custom_save_v1';
+  const [hasSavedStorage, setHasSavedStorage] = useState<boolean>(() => {
+    try {
+      return Boolean(localStorage.getItem('stellargenesis_custom_save_v1'));
+    } catch {
+      return false;
+    }
+  });
+
   // Viewport & Tools
   const [camera, setCamera] = useState<CameraState>({ x: 0, y: 0, zoom: 1.0 });
   const [currentTool, setCurrentTool] = useState<ToolType>('select');
@@ -209,6 +219,81 @@ export default function App() {
       'info'
     );
   }, [addToast]);
+
+  /**
+   * Save current simulation to LocalStorage
+   */
+  const handleSaveStorage = useCallback(() => {
+    try {
+      const payload = {
+        version: 1,
+        timestamp: Date.now(),
+        preset: currentPreset,
+        bodies: bodiesRef.current,
+        particles: particlesRef.current.slice(0, 300),
+        camera,
+        settings
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      setHasSavedStorage(true);
+      sound.playMassPump();
+      addToast(
+        '💾 Сохранено в LocalStorage',
+        `Снимок системы (${payload.bodies.length} тел) успешно записан в браузерное хранилище.`,
+        'info'
+      );
+    } catch (err: any) {
+      addToast(
+        '⚠️ Ошибка сохранения',
+        `Не удалось сохранить данные: ${err?.message || 'Превышена квота хранилища'}`,
+        'warning'
+      );
+    }
+  }, [currentPreset, camera, settings, addToast]);
+
+  /**
+   * Load simulation from LocalStorage
+   */
+  const handleLoadStorage = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        addToast('⚠️ Запись не найдена', 'В LocalStorage нет сохраненной симуляции.', 'warning');
+        return;
+      }
+      const payload = JSON.parse(raw);
+      if (!payload || !Array.isArray(payload.bodies)) {
+        throw new Error('Некорректная структура файла');
+      }
+
+      pushSnapshot('Загрузка из LocalStorage');
+      setBodies(cloneBodies(payload.bodies));
+      if (Array.isArray(payload.particles)) {
+        setParticles(cloneParticles(payload.particles));
+      }
+      if (payload.camera) {
+        setCamera(payload.camera);
+      }
+      if (payload.settings) {
+        setSettings(prev => ({ ...prev, ...payload.settings }));
+      }
+      setSelectedBodyId(null);
+      setFollowingBodyId(null);
+
+      const timeStr = payload.timestamp ? new Date(payload.timestamp).toLocaleTimeString() : 'недавний';
+      addToast(
+        '📂 Загружено из LocalStorage',
+        `Восстановлено ${payload.bodies.length} тел из снимка (${timeStr}).`,
+        'info'
+      );
+    } catch (err: any) {
+      addToast(
+        '⚠️ Ошибка загрузки',
+        `Сбой чтения LocalStorage: ${err?.message || 'Поврежденные данные'}`,
+        'warning'
+      );
+    }
+  }, [pushSnapshot, addToast]);
 
   // Load preset scenario
   const loadPreset = useCallback((presetId: PresetId) => {
@@ -403,6 +488,14 @@ export default function App() {
         return;
       }
 
+      // Check Save: Ctrl+S / Cmd+S
+      const isS = keyLower === 's' || keyLower === 'ы' || code === 'KeyS';
+      if (isCtrlOrCmd && isS) {
+        e.preventDefault();
+        handleSaveStorage();
+        return;
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPaused(prev => {
@@ -553,6 +646,9 @@ export default function App() {
         onRedo={handleRedo}
         undoTooltip={undoTooltip}
         redoTooltip={redoTooltip}
+        onSaveStorage={handleSaveStorage}
+        onLoadStorage={handleLoadStorage}
+        hasSavedStorage={hasSavedStorage}
       />
 
       {/* QuickDock: Fast Bottom Tool Switcher & Direct Object Action Bar */}
