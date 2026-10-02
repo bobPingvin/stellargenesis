@@ -10,6 +10,14 @@ export const SPEED_OF_LIGHT = 60.0;
 export const CHANDRASEKHAR_LIMIT = 1.44; // M☉
 export const TOV_LIMIT = 2.80;           // Tolman-Oppenheimer-Volkoff limit (M☉)
 
+// Physical & Numerical Simulation Constants (Inspection NC-01 Refactoring)
+export const ACCRETION_EFFICIENCY = 0.85;            // 85% of stripped mass accreted to singularity
+export const DIRECT_COLLISION_BH_ACCRETION = 0.90;   // 90% of colliding companion mass absorbed by BH
+export const MAX_TIDAL_STRETCH_FACTOR = 6.5;         // Maximum spaghettification elongation ratio
+export const TIDAL_INTERACTION_ZONE_FACTOR = 25.0;   // Distance multiplier for mutual tidal deformation
+export const FILAMENT_GRAVITY_DRAG = 0.012;          // Drag coefficient for relativistic plasma filaments
+export const IMPACT_KINETIC_HEATING_MK = 12.0;       // Core temperature surge (MK) upon stellar collision
+
 export interface SpectralClassData {
   name: string;
   russianName: string;
@@ -110,21 +118,33 @@ export const SPECTRAL_DATA: Record<SpectralClass, SpectralClassData> = {
   }
 };
 
-export function getSpectralClass(b: CelestialBody): SpectralClass {
-  if (b.remnantType === 'black_hole') return 'BLACK_HOLE';
-  if (b.remnantType === 'pulsar') return 'PULSAR';
-  if (b.remnantType === 'white_dwarf') return 'WHITE_DWARF';
-  if (b.radius > 24.0) return 'RED_GIANT';
+/**
+ * Determines astrophysical spectral class / remnant classification based on surface temperature and remnant state.
+ *
+ * @param body - Target celestial body
+ * @returns SpectralClass - Spectral identifier (O, B, A, F, G, K, M, RED_GIANT, WHITE_DWARF, PULSAR, BLACK_HOLE)
+ */
+export function getSpectralClass(body: CelestialBody): SpectralClass {
+  if (body.remnantType === 'black_hole') return 'BLACK_HOLE';
+  if (body.remnantType === 'pulsar') return 'PULSAR';
+  if (body.remnantType === 'white_dwarf') return 'WHITE_DWARF';
+  if (body.radius > 24.0) return 'RED_GIANT';
 
-  if (b.Teff >= 30000) return 'O';
-  if (b.Teff >= 11000) return 'B';
-  if (b.Teff >= 7500) return 'A';
-  if (b.Teff >= 6000) return 'F';
-  if (b.Teff >= 5000) return 'G';
-  if (b.Teff >= 3500) return 'K';
+  if (body.Teff >= 30000) return 'O';
+  if (body.Teff >= 11000) return 'B';
+  if (body.Teff >= 7500) return 'A';
+  if (body.Teff >= 6000) return 'F';
+  if (body.Teff >= 5000) return 'G';
+  if (body.Teff >= 3500) return 'K';
   return 'M';
 }
 
+/**
+ * Factory function for creating fully initialized celestial bodies with realistic astrophysical defaults.
+ *
+ * @param params - Partial configuration to override default values
+ * @returns CelestialBody - Complete celestial body entity
+ */
 export function createBody(params: Partial<CelestialBody> = {}): CelestialBody {
   const mass = params.mass ?? 1.0;
   const initialRadius = params.radius ?? Math.max(8, Math.pow(mass, 0.7) * 12);
@@ -190,6 +210,20 @@ export function createBody(params: Partial<CelestialBody> = {}): CelestialBody {
   };
 }
 
+/**
+ * Creates an accretion or nebula gas particle.
+ *
+ * @param x - Initial X coordinate
+ * @param y - Initial Y coordinate
+ * @param vx - Initial X velocity
+ * @param vy - Initial Y velocity
+ * @param color - Hex/RGBA color code
+ * @param radius - Visual particle radius
+ * @param life - Lifetime in ticks
+ * @param isGas - Whether particle is subject to thermodynamic pressure
+ * @param mass - Gravitational mass of particle
+ * @returns Particle entity
+ */
 export function createParticle(
   x: number, y: number,
   vx: number, vy: number,
@@ -422,6 +456,180 @@ export function triggerStarCollapse(
 }
 
 /**
+ * Calculates relativistic tidal deformation (spaghettification strain) exerted on a body by a heavier attractor.
+ * Deduplicated helper (Inspection NC-02 & NC-04).
+ *
+ * @param body - The celestial body experiencing tidal deformation
+ * @param attractor - The massive companion or remnant exerting the gravitational gradient
+ * @param dist - Euclidean distance between body centers
+ * @param dx - Relative X displacement (attractor.x - body.x)
+ * @param dy - Relative Y displacement (attractor.y - body.y)
+ */
+function computeSingleBodyTidalStretch(
+  body: CelestialBody,
+  attractor: CelestialBody,
+  dist: number,
+  dx: number,
+  dy: number
+): void {
+  if (attractor.mass <= body.mass * 1.5 || dist >= body.radius * TIDAL_INTERACTION_ZONE_FACTOR) {
+    return;
+  }
+
+  const tidalRadius = body.radius * Math.cbrt((2.8 * attractor.mass) / Math.max(0.1, body.mass));
+  if (dist <= tidalRadius * 1.8) {
+    const proximity = Math.max(0, (tidalRadius * 1.8 - dist) / (tidalRadius * 1.8));
+    const stretchVal = 1.0 + Math.pow(proximity, 1.3) * (attractor.remnantType === 'black_hole' ? 5.5 : 2.2);
+    const angleToAttractor = Math.atan2(dy, dx);
+    if (!body.tidalStretch || stretchVal > body.tidalStretch.factor) {
+      body.tidalStretch = {
+        factor: Math.min(MAX_TIDAL_STRETCH_FACTOR, stretchVal),
+        angle: angleToAttractor
+      };
+    }
+  }
+}
+
+/**
+ * Processes Tidal Disruption Event (TDE) when a star encounters the strong field of a black hole.
+ * Handles continuous relativistic shredding, mass stripping, spaghettification, and accretion flares (NC-03).
+ *
+ * @param bh - The black hole singularity
+ * @param victim - The star being shredded
+ * @param dist - Center-to-center distance
+ * @param dt - Simulation time delta
+ * @param particles - Global particle system buffer for shredded plasma filaments
+ * @param onRemoveBody - Callback when victim is completely consumed
+ * @param onNotification - Callback for astrophysical events
+ * @returns boolean - True if the victim was completely consumed and destroyed
+ */
+function handleTidalDisruptionEvent(
+  bh: CelestialBody,
+  victim: CelestialBody,
+  dist: number,
+  dt: number,
+  particles: Particle[],
+  onRemoveBody: (victim: CelestialBody) => void,
+  onNotification?: (title: string, body: string, type: 'supernova' | 'blackhole' | 'info') => void
+): boolean {
+  // Hydrodynamic Tidal Radius (Roche Limit) RT = R* * (2.5 * M_BH / M*)^(1/3)
+  const tidalRadius = victim.radius * Math.cbrt((2.5 * bh.mass) / Math.max(0.15, victim.mass));
+  if (dist > tidalRadius) {
+    return false;
+  }
+
+  // 1. Spaghettification - extreme tidal elongation along radial line to singularity
+  const stretchFactor = Math.min(
+    MAX_TIDAL_STRETCH_FACTOR,
+    1.0 + ((tidalRadius - dist) / Math.max(10, tidalRadius)) * 5.2
+  );
+  const angleToBH = Math.atan2(bh.y - victim.y, bh.x - victim.x);
+
+  victim.isDisrupting = true;
+  victim.disruptedById = bh.id;
+  victim.tidalStretch = { factor: stretchFactor, angle: angleToBH };
+
+  // 2. Relativistic mass shredding & accretion stream
+  const stripMass = Math.min(victim.mass * 0.45, (0.04 + 0.35 * (tidalRadius / (dist + 5))) * dt * 4.5);
+  victim.mass = Math.max(0.01, victim.mass - stripMass);
+  bh.mass += stripMass * ACCRETION_EFFICIENCY;
+
+  victim.radius = Math.max(2.5, Math.pow(Math.max(0.04, victim.mass), 0.7) * 12);
+  victim.Teff = Math.min(75000, victim.Teff + 450 * dt);
+
+  // 3. Spawn shredded glowing relativistic plasma filaments curving into accretion disk
+  const shredColors = ['#ffffff', '#fef08a', '#facc15', '#fb923c', '#ea580c'];
+  const shredCount = Math.min(6, Math.ceil(stripMass * 30 + 1));
+  for (let filamentIndex = 0; filamentIndex < shredCount; filamentIndex++) {
+    const spread = (Math.random() - 0.5) * 0.5;
+    const shredAngle = angleToBH + spread;
+    const shredSpeed = Math.random() * 4.5 + 2.0;
+
+    particles.push(createParticle(
+      victim.x + Math.cos(shredAngle) * (victim.radius * 0.8),
+      victim.y + Math.sin(shredAngle) * (victim.radius * 0.8),
+      victim.vx * 0.6 + Math.cos(shredAngle) * shredSpeed,
+      victim.vy * 0.6 + Math.sin(shredAngle) * shredSpeed,
+      shredColors[Math.floor(Math.random() * shredColors.length)],
+      Math.random() * 2.8 + 1.2,
+      Math.random() * 40 + 20,
+      true,
+      FILAMENT_GRAVITY_DRAG
+    ));
+  }
+
+  // 4. Complete Tidal Disruption: star core falls into event horizon or mass depleted
+  const eventHorizon = bh.radius + 3.0;
+  if (dist <= eventHorizon || victim.mass <= 0.07) {
+    sound.playTidalDisruption();
+
+    // Explosive TDE Flare: spawn relativistic plasma ring
+    for (let flareIndex = 0; flareIndex < 45; flareIndex++) {
+      const flareAngle = Math.random() * Math.PI * 2;
+      const flareSpeed = Math.random() * 7.5 + 3.0;
+      particles.push(createParticle(
+        bh.x, bh.y,
+        bh.vx + Math.cos(flareAngle) * flareSpeed,
+        bh.vy + Math.sin(flareAngle) * flareSpeed,
+        shredColors[flareIndex % shredColors.length],
+        Math.random() * 3.5 + 1.8,
+        Math.random() * 60 + 35,
+        false,
+        0.01
+      ));
+    }
+
+    onNotification?.(
+      '💥 Приливное разрушение (TDE)',
+      `${victim.name} полностью спагеттифицирована и поглощена сингулярностью ${bh.name}! Масса перешла в релятивистский аккреционный диск.`,
+      'blackhole'
+    );
+
+    onRemoveBody(victim);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Processes direct inelastic collision between two celestial bodies.
+ * Conserves total linear momentum (P = const) and models shock-kinetic core heating (NC-03).
+ *
+ * @param bodyA - First colliding body
+ * @param bodyB - Second colliding body
+ * @param onRemoveBody - Callback to dispose of merged body
+ * @param onNotification - Optional notification callback
+ */
+function handleInelasticBodyCollision(
+  bodyA: CelestialBody,
+  bodyB: CelestialBody,
+  onRemoveBody: (victim: CelestialBody) => void,
+  onNotification?: (title: string, body: string, type: 'supernova' | 'blackhole' | 'info') => void
+): void {
+  if (bodyA.remnantType === 'black_hole' || bodyB.remnantType === 'black_hole') {
+    const bh = bodyA.remnantType === 'black_hole' ? bodyA : bodyB;
+    const victim = bh === bodyA ? bodyB : bodyA;
+    bh.mass += victim.mass * DIRECT_COLLISION_BH_ACCRETION;
+    sound.playTidalDisruption();
+    onNotification?.('🕳️ Аккреция в Сингулярность', `${bh.name} поглотила ${victim.name}.`, 'blackhole');
+    onRemoveBody(victim);
+    return;
+  }
+
+  const primary = bodyA.mass >= bodyB.mass ? bodyA : bodyB;
+  const secondary = primary === bodyA ? bodyB : bodyA;
+  const totalMass = primary.mass + secondary.mass;
+
+  // Law of Conservation of Linear Momentum: P_final = P1 + P2
+  primary.vx = (primary.vx * primary.mass + secondary.vx * secondary.mass) / totalMass;
+  primary.vy = (primary.vy * primary.mass + secondary.vy * secondary.mass) / totalMass;
+  primary.mass = totalMass;
+  primary.Tcore += IMPACT_KINETIC_HEATING_MK;
+  onRemoveBody(secondary);
+}
+
+/**
  * Compute pair-wise N-body accelerations, tidal disruption events (TDE), and spaghettification
  */
 function computeAccelerations(
@@ -452,43 +660,15 @@ function computeAccelerations(
       const dist = Math.sqrt(distSq);
       const denom = Math.pow(distSq + eps * eps, 1.5);
 
-      const f = G / denom;
-      b1.ax += f * b2.mass * dx;
-      b1.ay += f * b2.mass * dy;
-      b2.ax -= f * b1.mass * dx;
-      b2.ay -= f * b1.mass * dy;
+      const forceScalar = G / denom;
+      b1.ax += forceScalar * b2.mass * dx;
+      b1.ay += forceScalar * b2.mass * dy;
+      b2.ax -= forceScalar * b1.mass * dx;
+      b2.ay -= forceScalar * b1.mass * dy;
 
-      // --- Universal Mutual Tidal Strain Calculation ---
-      // Tidal gradient = 2 * G * M_attractor / r^3
-      // Tidal stretch threshold on lighter body by heavier body
-      const m1 = b1.mass;
-      const m2 = b2.mass;
-
-      // Check b1 stretched by b2
-      if (m2 > m1 * 1.5 && dist < b1.radius * 25.0) {
-        const tidalRadius1 = b1.radius * Math.cbrt((2.8 * m2) / Math.max(0.1, m1));
-        if (dist <= tidalRadius1 * 1.8) {
-          const prox = Math.max(0, (tidalRadius1 * 1.8 - dist) / (tidalRadius1 * 1.8));
-          const stretchVal = 1.0 + Math.pow(prox, 1.3) * (b2.remnantType === 'black_hole' ? 5.5 : 2.2);
-          const angleToB2 = Math.atan2(dy, dx);
-          if (!b1.tidalStretch || stretchVal > b1.tidalStretch.factor) {
-            b1.tidalStretch = { factor: Math.min(6.5, stretchVal), angle: angleToB2 };
-          }
-        }
-      }
-
-      // Check b2 stretched by b1
-      if (m1 > m2 * 1.5 && dist < b2.radius * 25.0) {
-        const tidalRadius2 = b2.radius * Math.cbrt((2.8 * m1) / Math.max(0.1, m2));
-        if (dist <= tidalRadius2 * 1.8) {
-          const prox = Math.max(0, (tidalRadius2 * 1.8 - dist) / (tidalRadius2 * 1.8));
-          const stretchVal = 1.0 + Math.pow(prox, 1.3) * (b1.remnantType === 'black_hole' ? 5.5 : 2.2);
-          const angleToB1 = Math.atan2(-dy, -dx);
-          if (!b2.tidalStretch || stretchVal > b2.tidalStretch.factor) {
-            b2.tidalStretch = { factor: Math.min(6.5, stretchVal), angle: angleToB1 };
-          }
-        }
-      }
+      // Deduplicated mutual tidal strain calculation (NC-02)
+      computeSingleBodyTidalStretch(b1, b2, dist, dx, dy);
+      computeSingleBodyTidalStretch(b2, b1, dist, -dx, -dy);
 
       // Check for Tidal Disruption Event (TDE) if one is a Black Hole and other is a normal body
       const isB1BH = b1.remnantType === 'black_hole';
@@ -497,102 +677,16 @@ function computeAccelerations(
       if ((isB1BH || isB2BH) && !(isB1BH && isB2BH)) {
         const bh = isB1BH ? b1 : b2;
         const victim = isB1BH ? b2 : b1;
-
-        // Hydrodynamic Tidal Radius (Roche Limit) RT = R* * (2.4 * M_BH / M*)^(1/3)
-        const tidalRadius = victim.radius * Math.cbrt((2.5 * bh.mass) / Math.max(0.15, victim.mass));
-
-        if (dist <= tidalRadius) {
-          // 1. Spaghettification - extreme tidal elongation along radial line to singularity
-          const stretchFactor = Math.min(6.5, 1.0 + ((tidalRadius - dist) / Math.max(10, tidalRadius)) * 5.2);
-          const angleToBH = Math.atan2(bh.y - victim.y, bh.x - victim.x);
-
-          victim.isDisrupting = true;
-          victim.disruptedById = bh.id;
-          victim.tidalStretch = { factor: stretchFactor, angle: angleToBH };
-
-          // 2. Relativistic mass shredding & accretion stream
-          const stripMass = Math.min(victim.mass * 0.45, (0.04 + 0.35 * (tidalRadius / (dist + 5))) * dt * 4.5);
-          victim.mass = Math.max(0.01, victim.mass - stripMass);
-          bh.mass += stripMass * 0.85; // 85% accreted into singularity
-
-          victim.radius = Math.max(2.5, Math.pow(Math.max(0.04, victim.mass), 0.7) * 12);
-          victim.Teff = Math.min(75000, victim.Teff + 450 * dt);
-
-          // 3. Spawn shredded glowing relativistic plasma filaments curving into accretion disk in gold/orange/white
-          const shredColors = ['#ffffff', '#fef08a', '#facc15', '#fb923c', '#ea580c'];
-          const shredCount = Math.min(6, Math.ceil(stripMass * 30 + 1));
-          for (let sc = 0; sc < shredCount; sc++) {
-            const spread = (Math.random() - 0.5) * 0.5;
-            const shredAngle = angleToBH + spread;
-            const shredSpeed = Math.random() * 4.5 + 2.0;
-
-            particles.push(createParticle(
-              victim.x + Math.cos(shredAngle) * (victim.radius * 0.8),
-              victim.y + Math.sin(shredAngle) * (victim.radius * 0.8),
-              victim.vx * 0.6 + Math.cos(shredAngle) * shredSpeed,
-              victim.vy * 0.6 + Math.sin(shredAngle) * shredSpeed,
-              shredColors[Math.floor(Math.random() * shredColors.length)],
-              Math.random() * 2.8 + 1.2,
-              Math.random() * 40 + 20,
-              true,
-              0.012
-            ));
-          }
-
-          // 4. Complete Tidal Disruption: star core falls into event horizon or mass depleted
-          const eventHorizon = bh.radius + 3.0;
-          if (dist <= eventHorizon || victim.mass <= 0.07) {
-            sound.playTidalDisruption();
-
-            // Explosive TDE Flare: spawn relativistic plasma ring
-            for (let f = 0; f < 45; f++) {
-              const flareAngle = Math.random() * Math.PI * 2;
-              const flareSpeed = Math.random() * 7.5 + 3.0;
-              particles.push(createParticle(
-                bh.x, bh.y,
-                bh.vx + Math.cos(flareAngle) * flareSpeed,
-                bh.vy + Math.sin(flareAngle) * flareSpeed,
-                shredColors[f % shredColors.length],
-                Math.random() * 3.5 + 1.8,
-                Math.random() * 60 + 35,
-                false,
-                0.01
-              ));
-            }
-
-            onNotification?.(
-              '💥 Приливное разрушение (TDE)',
-              `${victim.name} полностью спагеттифицирована и поглощена сингулярностью ${bh.name}! Масса перешла в релятивистский аккреционный диск.`,
-              'blackhole'
-            );
-
-            onRemoveBody(victim);
-            return;
-          }
+        const consumed = handleTidalDisruptionEvent(bh, victim, dist, dt, particles, onRemoveBody, onNotification);
+        if (consumed) {
+          return;
         }
       }
 
       // Inelastic collision & ordinary accretion if not black hole disruption
       const collisionDist = b1.radius + b2.radius;
       if (distSq < collisionDist * collisionDist) {
-        if (b1.remnantType === 'black_hole' || b2.remnantType === 'black_hole') {
-          const bh = b1.remnantType === 'black_hole' ? b1 : b2;
-          const victim = bh === b1 ? b2 : b1;
-          bh.mass += victim.mass * 0.9;
-          sound.playTidalDisruption();
-          onNotification?.('🕳️ Аккреция в Сингулярность', `${bh.name} поглотила ${victim.name}.`, 'blackhole');
-          onRemoveBody(victim);
-          return;
-        }
-
-        const primary = b1.mass >= b2.mass ? b1 : b2;
-        const secondary = primary === b1 ? b2 : b1;
-        const totalMass = primary.mass + secondary.mass;
-        primary.vx = (primary.vx * primary.mass + secondary.vx * secondary.mass) / totalMass;
-        primary.vy = (primary.vy * primary.mass + secondary.vy * secondary.mass) / totalMass;
-        primary.mass = totalMass;
-        primary.Tcore += 12.0; // impact kinetic heating
-        onRemoveBody(secondary);
+        handleInelasticBodyCollision(b1, b2, onRemoveBody, onNotification);
         return;
       }
     }
@@ -606,9 +700,10 @@ function computeAccelerations(
 export const VISUAL_C_DOPPLER = 4.2;
 
 /**
- * Calculates relativistic Doppler redshift/blueshift parameter z from line-of-sight velocity vx
- * z < 0: Blueshift (approaching / moving towards observer)
- * z > 0: Redshift (receding / moving away from observer)
+ * Calculates relativistic Doppler redshift/blueshift parameter z from line-of-sight velocity vx.
+ *
+ * @param vx - Line-of-sight velocity component (px/s)
+ * @returns number - Doppler parameter z (z < 0: blueshift, z > 0: redshift)
  */
 export function computeDopplerFromVx(vx: number): number {
   const beta = Math.max(-0.95, Math.min(0.95, vx / VISUAL_C_DOPPLER));
@@ -617,8 +712,11 @@ export function computeDopplerFromVx(vx: number): number {
 }
 
 /**
- * Calculates relativistic Doppler beaming intensity factor (beaming ~ delta^3 to delta^4)
- * Approaching matter is significantly amplified in brightness; receding matter is dimmed
+ * Calculates relativistic Doppler beaming intensity factor (beaming ~ delta^3 to delta^4).
+ * Approaching matter is significantly amplified in brightness; receding matter is dimmed.
+ *
+ * @param z - Doppler parameter z
+ * @returns number - Beaming multiplier (0.3 to 2.8)
  */
 export function getDopplerBeamingIntensity(z: number): number {
   const delta = 1 / (1 + z);
@@ -626,16 +724,23 @@ export function getDopplerBeamingIntensity(z: number): number {
 }
 
 /**
- * Calculates relativistic Doppler redshift/blueshift parameters for a celestial body
+ * Calculates relativistic Doppler redshift/blueshift parameters for a celestial body.
+ *
+ * @param body - Celestial body target
+ * @returns number - Doppler redshift parameter z
  */
-export function computeDopplerShift(b: CelestialBody): number {
-  return computeDopplerFromVx(b.vx);
+export function computeDopplerShift(body: CelestialBody): number {
+  return computeDopplerFromVx(body.vx);
 }
 
 /**
- * Transforms an RGB/Hex/RGBA color by relativistic Doppler shift with striking visual contrast
+ * Transforms an RGB/Hex/RGBA color by relativistic Doppler shift with striking visual contrast.
  * z < 0: Blueshift (shifts to electric cyan/violet/white-hot, boosting luminosity)
  * z > 0: Redshift (shifts to fiery amber/crimson/deep infrared, dimming luminosity)
+ *
+ * @param colorStr - Original color string (hex or rgba)
+ * @param z - Doppler redshift parameter
+ * @returns string - Shifted color representation
  */
 export function applyDopplerToColor(colorStr: string, z: number): string {
   if (Math.abs(z) < 0.03) return colorStr;
@@ -662,7 +767,15 @@ export function applyDopplerToColor(colorStr: string, z: number): string {
 }
 
 /**
- * Step Physics Engine (Velocity Verlet)
+ * Integrates one discrete simulation time step using the Velocity Verlet symplectic algorithm.
+ * Handles N-body gravitation, relativistic limits, Doppler calculations, nucleosynthesis, and collisions.
+ *
+ * @param bodies - Active array of celestial bodies in simulation
+ * @param particles - Particle system buffer for gas and relativistic jets
+ * @param settings - Global simulation parameters (G, softening, flags)
+ * @param dt - Time step delta
+ * @param onRemoveBody - Callback when a body is merged or destroyed
+ * @param onNotification - Optional astrophysical event notifier callback
  */
 export function stepPhysics(
   bodies: CelestialBody[],

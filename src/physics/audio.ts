@@ -17,7 +17,10 @@ class SoundEngine {
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch((error: unknown) => {
+        // Autoplay policy: AudioContext resume requires explicit user interaction gesture (NC-06)
+        console.debug('[AudioEngine] AudioContext resume deferred pending user gesture:', error);
+      });
     }
   }
 
