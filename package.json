@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "stellargenesis",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Interactive Astrophysics Simulation of Stellar Evolution, N-body Gravitation, Relativistic Collapse & Doppler Beaming",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
