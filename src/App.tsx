@@ -25,6 +25,7 @@ export default function App() {
   const [bodies, setBodies] = useState<CelestialBody[]>([]);
   const [particles, setParticles] = useState<Particle[]>([]);
   const [selectedBodyId, setSelectedBodyId] = useState<string | null>(null);
+  const [liveSelectedBody, setLiveSelectedBody] = useState<CelestialBody | null>(null);
   const [followingBodyId, setFollowingBodyId] = useState<string | null>(null);
   const [is3DInspectorOpen, setIs3DInspectorOpen] = useState<boolean>(false);
 
@@ -332,13 +333,20 @@ export default function App() {
     loadPreset('solar');
   }, [loadPreset]);
 
-  // Derive selected and following body
-  const selectedBody = bodies.find(b => b.id === selectedBodyId) || null;
+  // Derive selected and following body with real-time live telemetry synchronization
+  const selectedBody = (liveSelectedBody && liveSelectedBody.id === selectedBodyId)
+    ? liveSelectedBody
+    : (bodies.find(b => b.id === selectedBodyId) || null);
   const followingBody = bodies.find(b => b.id === followingBodyId) || null;
 
   const handleSetSelectedBody = (b: CelestialBody | null) => {
     setSelectedBodyId(b ? b.id : null);
+    setLiveSelectedBody(b ? { ...b } : null);
   };
+
+  const handleSyncSelectedBody = useCallback((live: CelestialBody | null) => {
+    setLiveSelectedBody(live);
+  }, []);
 
   const handleSetFollowingBody = (b: CelestialBody | null) => {
     setFollowingBodyId(b ? b.id : null);
@@ -624,6 +632,7 @@ export default function App() {
           setSelectedBodyId(b.id);
           setIs3DInspectorOpen(true);
         }}
+        onSyncSelectedBody={handleSyncSelectedBody}
       />
 
       {/* Slide-out Flyout Menu (Left drawer housing all tools, scenarios, nebula generator & settings) */}
@@ -706,6 +715,8 @@ export default function App() {
       <StarInspector
         selectedBody={selectedBody}
         followingBody={followingBody}
+        evolutionSpeed={settings.stellarEvolutionSpeed ?? 1.0}
+        onUpdateEvolutionSpeed={(spd) => setSettings(prev => ({ ...prev, stellarEvolutionSpeed: spd }))}
         onToggleFollow={handleToggleFollow}
         onPumpMass={handlePumpMass}
         onFeedBlackHole={handleFeedBlackHole}

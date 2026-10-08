@@ -15,7 +15,8 @@ import {
   createParticle,
   applyDopplerToColor,
   computeDopplerFromVx,
-  SPEED_OF_LIGHT
+  SPEED_OF_LIGHT,
+  handleInelasticBodyCollision
 } from '../physics/engine';
 import { renderProceduralCosmos, SECTOR_SIZE } from '../physics/proceduralUniverse';
 import { renderSpacetimeFabric, GLOBAL_ACCRETION_POOL } from '../physics/gravitationalLensing';
@@ -66,6 +67,7 @@ interface CanvasViewportProps {
   onStopVelocity?: () => void;
   onSelectTool?: (tool: ToolType) => void;
   onInspect3D?: (body: CelestialBody) => void;
+  onSyncSelectedBody?: (body: CelestialBody | null) => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -95,7 +97,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onPumpMass,
   onStopVelocity,
   onSelectTool,
-  onInspect3D
+  onInspect3D,
+  onSyncSelectedBody
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -256,24 +259,37 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             curSettings,
             dt,
             (victim) => {
+              const curIdx = curBodies.findIndex(b => b.id === victim.id);
+              if (curIdx !== -1) curBodies.splice(curIdx, 1);
               stateRef.current.bodies = stateRef.current.bodies.filter(b => b.id !== victim.id);
               setBodies(prev => prev.filter(b => b.id !== victim.id));
               if (stateRef.current.selectedBody?.id === victim.id) {
                 setSelectedBody(null);
+              }
+              if (draggedBodyRef.current?.id === victim.id) {
+                draggedBodyRef.current = null;
+                setActiveDragId(null);
               }
             },
             onNotification
           );
         }
 
-        // Camera tracking (smooth in stateRef without triggering 60 React re-renders/sec)
-        if (curFollowing) {
-          const target = curBodies.find(b => b.id === curFollowing.id);
-          if (target) {
-            curCamera.x = target.x;
-            curCamera.y = target.y;
-            if (timestamp - lastHudUpdate > 250) {
+        // Periodic telemetry synchronization and smooth camera tracking (throttled to ~8 times/sec)
+        if (timestamp - lastHudUpdate > 120) {
+          lastHudUpdate = timestamp;
+          if (curFollowing) {
+            const target = curBodies.find(b => b.id === curFollowing.id);
+            if (target) {
               setCamera(prev => ({ ...prev, x: target.x, y: target.y }));
+            }
+          }
+          if (stateRef.current.selectedBody) {
+            const live = curBodies.find(b => b.id === stateRef.current.selectedBody?.id);
+            if (live) {
+              onSyncSelectedBody?.({ ...live, composition: { ...live.composition } });
+            } else {
+              onSyncSelectedBody?.(null);
             }
           }
         }
@@ -560,20 +576,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           ctx.arc(scr.x, scr.y, diskR, 0, Math.PI * 2);
           ctx.fill();
 
-          // Doppler Beaming Asymmetry Overlay (Relativistic beaming on approaching side)
-          if (curSettings.dopplerEffect !== false) {
-            const dopplerOverlay = ctx.createLinearGradient(scr.x - diskR, scr.y, scr.x + diskR, scr.y);
-            dopplerOverlay.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-            dopplerOverlay.addColorStop(0.4, 'rgba(254, 240, 138, 0.2)');
-            dopplerOverlay.addColorStop(0.7, 'rgba(180, 83, 9, 0.0)');
-            dopplerOverlay.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-            ctx.fillStyle = dopplerOverlay;
-            ctx.beginPath();
-            ctx.arc(scr.x, scr.y, diskR, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
           // [LAYER 3] High-Density Swirling Relativistic Accretion Particles in Circular Keplerian Orbits
           ctx.globalCompositeOperation = 'lighter';
           for (let pIdx = 0; pIdx < GLOBAL_ACCRETION_POOL.length; pIdx++) {
@@ -586,21 +588,24 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             const pX = scr.x + Math.cos(curAngle) * curR;
             const pY = scr.y + Math.sin(curAngle) * curR;
 
-            // Relativistic Doppler Beaming factor: Left-moving hemisphere (sin > 0 or cos < 0)
-            const isApproaching = Math.sin(curAngle) > 0;
+            // Smooth relativistic Doppler Beaming factor along line-of-sight velocity:
+            // Continuous sinusoidal modulation without harsh binary white/dark separation
+            const sinA = Math.sin(curAngle);
             const dopplerFactor = curSettings.dopplerEffect !== false
-              ? (isApproaching ? 1.0 + Math.abs(Math.sin(curAngle)) * 1.3 : Math.max(0.2, 1.0 - Math.abs(Math.sin(curAngle)) * 0.6))
+              ? Math.max(0.4, Math.min(1.6, 1.0 + sinA * 0.42))
               : 1.0;
 
             const pSize = Math.max(0.8, ap.size * curCamera.zoom * Math.sqrt(dopplerFactor));
-            const pAlpha = Math.min(1.0, ap.brightness * dopplerFactor);
+            const pAlpha = Math.min(0.9, ap.brightness * dopplerFactor);
 
-            // Plasma color gradient from inner white-hot to outer amber
-            let pCol = '#fef08a';
-            if (isApproaching && curSettings.dopplerEffect !== false) {
-              pCol = ap.radiusNorm < 0.35 ? '#ffffff' : ap.radiusNorm < 0.65 ? '#bae6fd' : '#fde047';
-            } else {
-              pCol = ap.radiusNorm < 0.35 ? '#fef08a' : ap.radiusNorm < 0.65 ? '#f59e0b' : '#ea580c';
+            // Astrophysical accretion plasma color: radial thermal gradient + smooth subtle Doppler tint
+            let pCol = ap.radiusNorm < 0.35 ? '#fef08a' : ap.radiusNorm < 0.65 ? '#f59e0b' : '#ea580c';
+            if (curSettings.dopplerEffect !== false) {
+              if (sinA > 0.45 && ap.radiusNorm < 0.5) {
+                pCol = '#e0f2fe'; // Gentle high-velocity cyan brightening
+              } else if (sinA < -0.45 && ap.radiusNorm > 0.5) {
+                pCol = '#c2410c'; // Gentle redshifted dimming
+              }
             }
 
             ctx.fillStyle = pCol;
@@ -1248,6 +1253,36 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (draggedBodyRef.current) {
       if (draggedBodyRef.current.hasMoved) {
         const movedBody = bodies.find(b => b.id === draggedBodyRef.current?.id);
+        if (movedBody) {
+          // Release Keplerian lock if user manually moved the body
+          movedBody.parentBodyId = undefined;
+          movedBody.orbitRadius = undefined;
+
+          // Check if body was dragged and dropped directly inside a star or black hole
+          for (const other of bodies) {
+            if (other.id === movedBody.id) continue;
+            if (!other.isPlanet || other.remnantType === 'black_hole') {
+              const d = Math.hypot(movedBody.x - other.x, movedBody.y - other.y);
+              if (d <= other.radius + movedBody.radius) {
+                handleInelasticBodyCollision(
+                  other,
+                  movedBody,
+                  stateRef.current.particles,
+                  (victim) => {
+                    const cIdx = stateRef.current.bodies.findIndex(b => b.id === victim.id);
+                    if (cIdx !== -1) stateRef.current.bodies.splice(cIdx, 1);
+                    setBodies(prev => prev.filter(b => b.id !== victim.id));
+                    if (stateRef.current.selectedBody?.id === victim.id) {
+                      setSelectedBody(null);
+                    }
+                  },
+                  onNotification
+                );
+                break;
+              }
+            }
+          }
+        }
         onSaveSnapshot?.(`Перемещение: ${movedBody?.name || 'тела'}`);
       } else {
         // Pure click without dragging: select object for telemetry & actions without forcing 3D view

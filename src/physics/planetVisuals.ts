@@ -238,14 +238,18 @@ export function renderDistinctCelestialBody(
     ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
   }
 
-  // Day/Night 3D shadow terminator across globe
-  const termGrad = ctx.createLinearGradient(-r, 0, r, 0);
-  termGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  termGrad.addColorStop(0.65, 'rgba(0, 0, 0, 0.05)');
-  termGrad.addColorStop(0.85, 'rgba(2, 6, 23, 0.55)');
-  termGrad.addColorStop(1, 'rgba(2, 6, 23, 0.85)');
-  ctx.fillStyle = termGrad;
-  ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+  // Day/Night 3D shadow terminator across globe (Only for non-illuminating planets and moons)
+  // Stars emit their own omnidirectional light and do NOT have an artificial white/black split!
+  if (b.isPlanet && planetKey !== 'sun') {
+    // Determine sun direction if in multi-body system, or standard soft spherical relief
+    const termGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.1, 0, 0, r);
+    termGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // Subtle specular highlight
+    termGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
+    termGrad.addColorStop(0.85, 'rgba(2, 6, 23, 0.40)');    // Soft planetary terminator
+    termGrad.addColorStop(1, 'rgba(2, 6, 23, 0.70)');
+    ctx.fillStyle = termGrad;
+    ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+  }
 
   ctx.restore();
 

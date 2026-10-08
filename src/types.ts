@@ -106,6 +106,9 @@ export interface CelestialBody {
   ringOuterRadius?: number;
   ringColor?: string;
   parentBodyId?: string;
+  orbitRadius?: number;          // Patched conic orbital distance from parent
+  orbitAngle?: number;           // Current orbital true anomaly / angle around parent
+  orbitAngularVelocity?: number; // Angular orbital velocity around parent planet
   axialTilt?: number;            // in radians
   rotationPeriodHours?: number;  // in Earth hours
   atmosphereColor?: string;

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { CelestialBody } from '../types';
-import { SPECTRAL_DATA, getSpectralClass, SPEED_OF_LIGHT, VISUAL_C_DOPPLER } from '../physics/engine';
+import { SPECTRAL_DATA, getSpectralClass, SPEED_OF_LIGHT, VISUAL_C_DOPPLER, getRemainingFuelPercent } from '../physics/engine';
 import { formatRadiusKm, getRadiusRatioToEarth } from '../physics/celestialScales';
 import { Eye, Flame, Trash2, Zap, HelpCircle, Activity, Sparkles, X, Orbit, Compass } from 'lucide-react';
 
@@ -15,10 +15,12 @@ interface StarInspectorProps {
   onToggleFollow: () => void;
   onPumpMass: () => void;
   onFeedBlackHole?: (amount: number) => void;
-  onTriggerSupernova: () => void;
+  onTriggerSupernova?: () => void;
   onDeleteBody: () => void;
   onClose?: () => void;
   onOpen3D?: () => void;
+  evolutionSpeed?: number;
+  onUpdateEvolutionSpeed?: (speed: number) => void;
 }
 
 export const StarInspector: React.FC<StarInspectorProps> = ({
@@ -30,7 +32,9 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   onTriggerSupernova,
   onDeleteBody,
   onClose,
-  onOpen3D
+  onOpen3D,
+  evolutionSpeed,
+  onUpdateEvolutionSpeed
 }) => {
   // If no body is selected, don't show inspector to keep interface completely clean
   if (!selectedBody) {
@@ -204,7 +208,17 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
           }
         }
 
-        const fuelPercent = Math.round((b.composition.H + b.composition.He + (b.mass >= 8 ? b.composition.C : 0)) * 100);
+        const fuelPercent = getRemainingFuelPercent(b);
+
+        // Active burning nucleosynthesis reaction
+        let burningReaction = '1H + 1H ➔ 4He (Синтез водорода в ядре)';
+        if (b.composition.H <= 0.05 && b.composition.He > 0.05) {
+          burningReaction = '3 4He ➔ 12C (Тройная α-реакция, горение гелия)';
+        } else if (b.mass >= 8.0 && b.composition.He <= 0.20 && b.composition.Fe < 0.35) {
+          burningReaction = '12C + 16O ➔ 28Si ➔ 56Fe (Синтез железа)';
+        } else if (b.composition.Fe >= 0.35 || fuelPercent <= 5) {
+          burningReaction = '⚠️ Железный кризис (Коллапс неизбежен!)';
+        }
 
         return (
           <div className="glass-card rounded-xl p-3 flex flex-col gap-2 font-mono text-xs">
@@ -229,7 +243,7 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
             </div>
 
             {!b.remnantType && (
-              <div className="flex flex-col gap-1 pt-1 border-t border-slate-800/80">
+              <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800/80">
                 <div className="flex justify-between text-[10px]">
                   <span className="text-slate-400">Ядерное топливо:</span>
                   <span className={`font-bold ${fuelPercent < 15 ? 'text-rose-400' : fuelPercent < 45 ? 'text-amber-400' : 'text-emerald-400'}`}>
@@ -244,8 +258,34 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
                     style={{ width: `${Math.min(100, Math.max(0, fuelPercent))}%` }}
                   />
                 </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-slate-400">Активный процесс:</span>
+                  <span className="text-[10px] text-amber-300 font-semibold">{burningReaction}</span>
+                </div>
+
+                {onUpdateEvolutionSpeed && (
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+                    <span className="text-[9px] text-slate-400">Скорость эволюции:</span>
+                    <div className="flex items-center gap-1">
+                      {[1, 5, 25, 100].map((spd) => (
+                        <button
+                          key={spd}
+                          onClick={() => onUpdateEvolutionSpeed(spd)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition ${
+                            (evolutionSpeed ?? 1) === spd
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                          }`}
+                        >
+                          {spd}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[9px] text-slate-500 leading-tight">
-                  Коллапс произойдет автоматически по физическим законам при исчерпании топлива.
+                  Взрыв сверхновой или сброс туманности произойдет полностью автономно без нажатия кнопок, когда выгорит все топливо.
                 </p>
               </div>
             )}
@@ -741,23 +781,12 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
               <Zap size={14} /> Вдуть +2.0 M☉ (Форсировать)
             </button>
 
-            <div className="grid grid-cols-2 gap-2">
-              {!b.isRemnant && (
-                <button
-                  onClick={onTriggerSupernova}
-                  className="py-1.5 px-2.5 rounded-xl bg-rose-950/80 border border-rose-600/50 text-rose-300 hover:bg-rose-900 text-xs font-mono transition flex items-center justify-center gap-1"
-                >
-                  <Flame size={12} /> Вспышка Сверхновой
-                </button>
-              )}
-
-              <button
-                onClick={onDeleteBody}
-                className={`py-1.5 px-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 text-xs font-mono transition flex items-center justify-center gap-1 ${b.isRemnant ? 'col-span-2' : ''}`}
-              >
-                <Trash2 size={12} /> Уничтожить
-              </button>
-            </div>
+            <button
+              onClick={onDeleteBody}
+              className="w-full py-1.5 px-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 text-xs font-mono transition flex items-center justify-center gap-1"
+            >
+              <Trash2 size={12} /> Уничтожить
+            </button>
           </>
         )}
       </div>

@@ -33,7 +33,7 @@ interface QuickDockProps {
   onToggleFollow: () => void;
   onPumpMass: () => void;
   onFeedBlackHole?: (amount: number) => void;
-  onTriggerSupernova: () => void;
+  onTriggerSupernova?: () => void;
   onDeleteBody: () => void;
   spawnMass: number;
   onUpdateSpawnMass: (mass: number) => void;
@@ -203,18 +203,6 @@ export const QuickDock: React.FC<QuickDockProps> = ({
               <Zap size={12} className="text-amber-400" />
               <span className="text-[11px]">+2.0 M☉</span>
               <span className="text-[9px] opacity-60">[+]</span>
-            </button>
-          )}
-
-          {/* Supernova for Stars */}
-          {!selectedBody.isRemnant && (
-            <button
-              onClick={onTriggerSupernova}
-              title="Вспышка Сверхновой"
-              className="px-2 py-1 rounded-xl bg-rose-950/80 border border-rose-500/50 text-rose-300 hover:bg-rose-900 text-xs font-mono transition flex items-center gap-1"
-            >
-              <Flame size={12} className="text-rose-400" />
-              <span className="text-[11px]">Сверхновая</span>
             </button>
           )}
 

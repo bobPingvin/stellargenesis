@@ -5,7 +5,7 @@
 ![Version](https://img.shields.io/badge/Version-v1.0.1-blue?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
 ![React 19](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
-![Vitest](https://img.shields.io/badge/Tests-52%2F52_PASS-22C55E?style=for-the-badge&logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/Tests-55%2F55_PASS-22C55E?style=for-the-badge&logo=vitest&logoColor=white)
 ![WebGL 2.0](https://img.shields.io/badge/WebGL_2.0-990000?style=for-the-badge&logo=webgl&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 ![License MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
