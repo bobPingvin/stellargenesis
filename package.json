@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:standalone": "tsx tests/physics.test.ts",
     "clean": "rm -rf dist server.js",
+    "generate:presentation": "node scripts/generate-presentation.cjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "@vitest/coverage-v8": "^5.0.3",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "pptxgenjs": "^4.0.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
