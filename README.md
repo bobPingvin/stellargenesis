@@ -2,17 +2,17 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/Version-v1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v1.0.1-blue?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
 ![React 19](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
-![Vitest](https://img.shields.io/badge/Tests-38%2F38_PASS-22C55E?style=for-the-badge&logo=vitest&logoColor=white)
+![Vitest](https://img.shields.io/badge/Tests-52%2F52_PASS-22C55E?style=for-the-badge&logo=vitest&logoColor=white)
 ![WebGL 2.0](https://img.shields.io/badge/WebGL_2.0-990000?style=for-the-badge&logo=webgl&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 ![License MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
 **Полнофункциональный интерактивный веб-симулятор релятивистской гравитации, гравитационного линзирования и звездной эволюции**
 
-[📖 Руководство пользователя](./docs/user-guide.md) • [🛠️ Руководство по установке](./docs/install-guide.md) • [📦 Changelog](./CHANGELOG.md) • [📊 Метрики качества](./docs/quality-metrics.md) • [🌿 Git-стратегия](./docs/git-strategy.md)
+[📖 Руководство пользователя](./docs/user-guide.md) • [🛠️ Руководство по установке](./docs/install-guide.md) • [✅ Чек-лист готовности 100%](./docs/readiness-checklist.md) • [📦 Changelog](./CHANGELOG.md) • [📊 Метрики](./docs/quality-metrics.md) • [🌿 Git](./docs/git-strategy.md)
 
 </div>
 

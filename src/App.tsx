@@ -295,6 +295,19 @@ export default function App() {
     }
   }, [pushSnapshot, addToast]);
 
+  // Actions ref to eliminate stale closures in global key listeners
+  const actionsRef = useRef({
+    handleUndo,
+    handleRedo,
+    handleSaveStorage,
+    handleToggleFollow: () => {},
+    handleStopVelocity: () => {},
+    handleFeedBlackHole: (_amt: number) => {},
+    handlePumpMass: () => {},
+    handleReduceMass: () => {},
+    handleDeleteBody: () => {}
+  });
+
   // Load preset scenario
   const loadPreset = useCallback((presetId: PresetId) => {
     if (bodiesRef.current.length > 0) {
@@ -332,45 +345,47 @@ export default function App() {
   };
 
   // Toggle follow
-  const handleToggleFollow = () => {
+  const handleToggleFollow = useCallback(() => {
     if (!selectedBody) return;
     if (followingBodyId === selectedBody.id) {
       setFollowingBodyId(null);
     } else {
       setFollowingBodyId(selectedBody.id);
     }
-  };
+  }, [selectedBody, followingBodyId]);
 
-  // Pump mass into selected body
-  const handlePumpMass = () => {
+  // Pump mass into selected body (immutable update)
+  const handlePumpMass = useCallback(() => {
     if (!selectedBody) return;
     pushSnapshot(`Накачка массы: ${selectedBody.name}`);
-    selectedBody.mass += 2.0;
-    selectedBody.Tcore += 25.0;
+    const newMass = selectedBody.mass + 2.0;
+    const newTcore = selectedBody.Tcore + 25.0;
+    setBodies(prev => prev.map(b => (b.id === selectedBody.id ? { ...b, mass: newMass, Tcore: newTcore } : b)));
     sound.playMassPump();
     addToast(
       '⚡ Накачка массы',
-      `В звезду ${selectedBody.name} закачано +2.0 M☉! Новая масса: ${selectedBody.mass.toFixed(1)} M☉.`,
+      `В звезду ${selectedBody.name} закачано +2.0 M☉! Новая масса: ${newMass.toFixed(1)} M☉.`,
       'info'
     );
-  };
+  }, [selectedBody, pushSnapshot, addToast]);
 
-  // Feed mass & energy directly into black hole
-  const handleFeedBlackHole = (amount: number) => {
+  // Feed mass & energy directly into black hole (immutable update)
+  const handleFeedBlackHole = useCallback((amount: number) => {
     if (!selectedBody) return;
     pushSnapshot(`Поглощение энергии: ${selectedBody.name}`);
-    selectedBody.mass += amount;
-    const rs = (2 * 1.2 * selectedBody.mass * 12.0) / (SPEED_OF_LIGHT * SPEED_OF_LIGHT);
-    selectedBody.radius = Math.max(8.0, rs * 4.0);
-    selectedBody.targetRadius = selectedBody.radius;
+    const newMass = selectedBody.mass + amount;
+    const rs = (2 * 1.2 * newMass * 12.0) / (SPEED_OF_LIGHT * SPEED_OF_LIGHT);
+    const newRadius = Math.max(8.0, rs * 4.0);
+
+    setBodies(prev => prev.map(b => (b.id === selectedBody.id ? { ...b, mass: newMass, radius: newRadius, targetRadius: newRadius } : b)));
 
     // Spawn infalling swirling relativistic matter particles around black hole
     const infallingCount = Math.min(60, amount * 2);
     const newMatter: Particle[] = [];
     for (let i = 0; i < infallingCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = selectedBody.radius * (1.8 + Math.random() * 2.4);
-      const speed = Math.sqrt((selectedBody.mass * 1.5) / dist) * 1.2;
+      const dist = newRadius * (1.8 + Math.random() * 2.4);
+      const speed = Math.sqrt((newMass * 1.5) / dist) * 1.2;
       newMatter.push(createParticle(
         selectedBody.x + Math.cos(angle) * dist,
         selectedBody.y + Math.sin(angle) * dist,
@@ -388,46 +403,64 @@ export default function App() {
     sound.playBlackHoleFeed();
     addToast(
       '🌀 Релятивистское поглощение',
-      `В черную дыру ${selectedBody.name} влито +${amount} M☉ массы и энергии! Новая масса: ${selectedBody.mass.toFixed(1)} M☉.`,
+      `В черную дыру ${selectedBody.name} влито +${amount} M☉ массы и энергии! Новая масса: ${newMass.toFixed(1)} M☉.`,
       'blackhole'
     );
-  };
+  }, [selectedBody, pushSnapshot, addToast]);
 
   // Trigger supernova on selected body
-  const handleTriggerSupernova = () => {
+  const handleTriggerSupernova = useCallback(() => {
     if (!selectedBody) return;
     pushSnapshot(`Взрыв сверхновой: ${selectedBody.name}`);
-    triggerStarCollapse(selectedBody, particles, (title, text, type) => {
+    const nextParticles = [...particlesRef.current];
+    triggerStarCollapse(selectedBody, nextParticles, (title, text, type) => {
       addToast(title, text, type);
     });
-  };
+    setParticles(nextParticles);
+    setBodies(prev => prev.map(b => (b.id === selectedBody.id ? { ...b } : b)));
+  }, [selectedBody, pushSnapshot, addToast]);
 
   // Delete selected body
-  const handleDeleteBody = () => {
+  const handleDeleteBody = useCallback(() => {
     if (!selectedBody) return;
     pushSnapshot(`Удаление тела: ${selectedBody.name}`);
     setBodies(prev => prev.filter(b => b.id !== selectedBody.id));
     if (followingBodyId === selectedBody.id) setFollowingBodyId(null);
     setSelectedBodyId(null);
-  };
+    setIs3DInspectorOpen(false);
+  }, [selectedBody, followingBodyId, pushSnapshot]);
 
   // Stop velocity of selected body
-  const handleStopVelocity = () => {
+  const handleStopVelocity = useCallback(() => {
     if (!selectedBody) return;
     pushSnapshot(`Остановка скорости: ${selectedBody.name}`);
-    selectedBody.vx = 0;
-    selectedBody.vy = 0;
+    setBodies(prev => prev.map(b => (b.id === selectedBody.id ? { ...b, vx: 0, vy: 0 } : b)));
+    sound.playUndo();
     addToast('🛑 Скорость обнулена', `Вектор скорости ${selectedBody.name} остановлен (v = 0).`, 'info');
-  };
+  }, [selectedBody, pushSnapshot, addToast]);
 
   // Reduce mass on selected body
-  const handleReduceMass = () => {
+  const handleReduceMass = useCallback(() => {
     if (!selectedBody) return;
     if (selectedBody.mass <= 0.2) return;
     pushSnapshot(`Уменьшение массы: ${selectedBody.name}`);
-    selectedBody.mass = Math.max(0.1, selectedBody.mass - 1.0);
+    const newMass = Math.max(0.1, selectedBody.mass - 1.0);
+    setBodies(prev => prev.map(b => (b.id === selectedBody.id ? { ...b, mass: newMass } : b)));
     sound.playMassPump();
-    addToast('🔻 Снижение массы', `Масса ${selectedBody.name} теперь: ${selectedBody.mass.toFixed(1)} M☉`, 'info');
+    addToast('🔻 Снижение массы', `Масса ${selectedBody.name} теперь: ${newMass.toFixed(1)} M☉`, 'info');
+  }, [selectedBody, pushSnapshot, addToast]);
+
+  // Update actionsRef synchronously on render
+  actionsRef.current = {
+    handleUndo,
+    handleRedo,
+    handleSaveStorage,
+    handleToggleFollow,
+    handleStopVelocity,
+    handleFeedBlackHole,
+    handlePumpMass,
+    handleReduceMass,
+    handleDeleteBody
   };
 
   // Clear all
@@ -478,13 +511,13 @@ export default function App() {
 
       if (isCtrlOrCmd && isZ && !e.shiftKey) {
         e.preventDefault();
-        handleUndo();
+        actionsRef.current.handleUndo();
         return;
       }
 
       if (isCtrlOrCmd && (isY || (isZ && e.shiftKey))) {
         e.preventDefault();
-        handleRedo();
+        actionsRef.current.handleRedo();
         return;
       }
 
@@ -492,7 +525,7 @@ export default function App() {
       const isS = keyLower === 's' || keyLower === 'ы' || code === 'KeyS';
       if (isCtrlOrCmd && isS) {
         e.preventDefault();
-        handleSaveStorage();
+        actionsRef.current.handleSaveStorage();
         return;
       }
 
@@ -520,26 +553,26 @@ export default function App() {
       } else if (e.key === '7') {
         setCurrentTool('spawn_pulsar');
       } else if (e.code === 'KeyF' || keyLower === 'f' || keyLower === 'а') {
-        handleToggleFollow();
+        actionsRef.current.handleToggleFollow();
       } else if (e.code === 'KeyM' || keyLower === 'm' || keyLower === 'ь') {
         setCurrentTool(prev => prev === 'move' ? 'select' : 'move');
       } else if (e.code === 'KeyV' || keyLower === 'v' || keyLower === 'м') {
         setCurrentTool('select');
       } else if (e.code === 'KeyX' || keyLower === 'x' || keyLower === 'ч') {
-        handleStopVelocity();
+        actionsRef.current.handleStopVelocity();
       } else if (e.key === '+' || e.key === '=' || e.code === 'BracketRight') {
         if (selectedBodyIdRef.current) {
           const cur = bodiesRef.current.find(b => b.id === selectedBodyIdRef.current);
           if (cur?.remnantType === 'black_hole') {
-            handleFeedBlackHole(25);
+            actionsRef.current.handleFeedBlackHole(25);
           } else {
-            handlePumpMass();
+            actionsRef.current.handlePumpMass();
           }
         }
       } else if (e.key === '-' || e.key === '_' || e.code === 'BracketLeft') {
-        handleReduceMass();
+        actionsRef.current.handleReduceMass();
       } else if (e.code === 'Delete' || e.code === 'Backspace') {
-        handleDeleteBody();
+        actionsRef.current.handleDeleteBody();
       } else if (e.code === 'KeyR' && !isCtrlOrCmd) {
         setCamera({ x: 0, y: 0, zoom: 1.0 });
         setFollowingBodyId(null);
@@ -555,7 +588,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, pushSnapshot]);
+  }, [pushSnapshot, is3DInspectorOpen]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
