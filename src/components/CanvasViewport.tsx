@@ -15,7 +15,9 @@ import {
   createParticle,
   applyDopplerToColor,
   computeDopplerFromVx,
-  SPEED_OF_LIGHT
+  SPEED_OF_LIGHT,
+  handleInelasticBodyCollision,
+  calculateHabitableZone
 } from '../physics/engine';
 import { renderProceduralCosmos, SECTOR_SIZE } from '../physics/proceduralUniverse';
 import { renderSpacetimeFabric, GLOBAL_ACCRETION_POOL } from '../physics/gravitationalLensing';
@@ -66,6 +68,8 @@ interface CanvasViewportProps {
   onStopVelocity?: () => void;
   onSelectTool?: (tool: ToolType) => void;
   onInspect3D?: (body: CelestialBody) => void;
+  onSyncSelectedBody?: (body: CelestialBody | null) => void;
+  isCinematicMode?: boolean;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -95,7 +99,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onPumpMass,
   onStopVelocity,
   onSelectTool,
-  onInspect3D
+  onInspect3D,
+  onSyncSelectedBody,
+  isCinematicMode = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -111,6 +117,13 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     body: CelestialBody | null;
   } | null>(null);
 
+  // Close context menu if entering cinematic mode
+  useEffect(() => {
+    if (isCinematicMode) {
+      setContextMenu(null);
+    }
+  }, [isCinematicMode]);
+
   // References for animation loop to access live states without re-binding loop
   const stateRef = useRef({
     bodies,
@@ -124,7 +137,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     settings,
     isPaused,
     nebulaConfig,
-    nebulaSpawnMode
+    nebulaSpawnMode,
+    isCinematicMode
   });
 
   stateRef.current.bodies = bodies;
@@ -139,6 +153,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   stateRef.current.isPaused = isPaused;
   stateRef.current.nebulaConfig = nebulaConfig;
   stateRef.current.nebulaSpawnMode = nebulaSpawnMode;
+  stateRef.current.isCinematicMode = isCinematicMode;
 
   useEffect(() => {
     stateRef.current = {
@@ -153,9 +168,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       settings,
       isPaused,
       nebulaConfig,
-      nebulaSpawnMode
+      nebulaSpawnMode,
+      isCinematicMode
     };
-  }, [bodies, particles, selectedBody, followingBody, hoveredBody, camera, currentTool, spawnMass, settings, isPaused, nebulaConfig, nebulaSpawnMode]);
+  }, [bodies, particles, selectedBody, followingBody, hoveredBody, camera, currentTool, spawnMass, settings, isPaused, nebulaConfig, nebulaSpawnMode, isCinematicMode]);
 
   // Drag vector state for star launching
   const [dragVector, setDragVector] = useState<{ start: { x: number; y: number }; current: { x: number; y: number } } | null>(null);
@@ -234,14 +250,24 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         followingBody: curFollowing
       } = stateRef.current;
 
-      const width = canvas.width;
-      const height = canvas.height;
+      const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+      const width = canvas.clientWidth || window.innerWidth;
+      const height = canvas.clientHeight || window.innerHeight;
+      const physW = Math.floor(width * dpr);
+      const physH = Math.floor(height * dpr);
 
-      // Ensure offscreen background canvas matches main viewport dimensions
-      if (bgCanvas.width !== width || bgCanvas.height !== height) {
-        bgCanvas.width = width;
-        bgCanvas.height = height;
+      // Ensure offscreen background canvas matches main physical dimensions
+      if (canvas.width !== physW || canvas.height !== physH) {
+        canvas.width = physW;
+        canvas.height = physH;
       }
+      if (bgCanvas.width !== physW || bgCanvas.height !== physH) {
+        bgCanvas.width = physW;
+        bgCanvas.height = physH;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
 
       // 1. Step Physics if not paused
       if (!curPaused) {
@@ -256,24 +282,37 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             curSettings,
             dt,
             (victim) => {
+              const curIdx = curBodies.findIndex(b => b.id === victim.id);
+              if (curIdx !== -1) curBodies.splice(curIdx, 1);
               stateRef.current.bodies = stateRef.current.bodies.filter(b => b.id !== victim.id);
               setBodies(prev => prev.filter(b => b.id !== victim.id));
               if (stateRef.current.selectedBody?.id === victim.id) {
                 setSelectedBody(null);
+              }
+              if (draggedBodyRef.current?.id === victim.id) {
+                draggedBodyRef.current = null;
+                setActiveDragId(null);
               }
             },
             onNotification
           );
         }
 
-        // Camera tracking (smooth in stateRef without triggering 60 React re-renders/sec)
-        if (curFollowing) {
-          const target = curBodies.find(b => b.id === curFollowing.id);
-          if (target) {
-            curCamera.x = target.x;
-            curCamera.y = target.y;
-            if (timestamp - lastHudUpdate > 250) {
+        // Periodic telemetry synchronization and smooth camera tracking (throttled to ~8 times/sec)
+        if (timestamp - lastHudUpdate > 120) {
+          lastHudUpdate = timestamp;
+          if (curFollowing) {
+            const target = curBodies.find(b => b.id === curFollowing.id);
+            if (target) {
               setCamera(prev => ({ ...prev, x: target.x, y: target.y }));
+            }
+          }
+          if (stateRef.current.selectedBody) {
+            const live = curBodies.find(b => b.id === stateRef.current.selectedBody?.id);
+            if (live) {
+              onSyncSelectedBody?.({ ...live, composition: { ...live.composition } });
+            } else {
+              onSyncSelectedBody?.(null);
             }
           }
         }
@@ -341,17 +380,29 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       if (bhScreenData.length > 0) {
         const bgCtx = bgCanvas.getContext('2d');
         if (bgCtx) {
+          bgCtx.save();
+          bgCtx.scale(dpr, dpr);
           bgCtx.fillStyle = '#020617';
           bgCtx.fillRect(0, 0, width, height);
           renderProceduralCosmos(bgCtx, curCamera, width, height, worldToScreen, blackHoles);
           if (showFabric) {
             renderSpacetimeFabric(bgCtx, curCamera, width, height, blackHoles, curBodies, worldToScreen, curSettings.adaptiveGrid !== false);
           }
+          bgCtx.restore();
+
+          // Pass physical buffer coordinates to WebGL full-screen shader
+          const physicalBhData = bhScreenData.map(bh => ({
+            ...bh,
+            screenX: bh.screenX * dpr,
+            screenY: bh.screenY * dpr,
+            screenRs: bh.screenRs * dpr,
+            screenEinsteinRadius: bh.screenEinsteinRadius * dpr
+          }));
 
           // Execute WebGL Screen-Space Gravitational Lensing Shader with Photon Ring & Ray Deflection
-          const shaderSuccess = lensingShader.renderLensing(ctx, bgCanvas, bhScreenData, timestamp);
+          const shaderSuccess = lensingShader.renderLensing(ctx, bgCanvas, physicalBhData, timestamp);
           if (!shaderSuccess) {
-            ctx.drawImage(bgCanvas, 0, 0);
+            ctx.drawImage(bgCanvas, 0, 0, width, height);
           }
         } else {
           ctx.fillStyle = '#020617';
@@ -368,6 +419,76 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         if (showFabric) {
           renderSpacetimeFabric(ctx, curCamera, width, height, [], curBodies, worldToScreen, curSettings.adaptiveGrid !== false);
         }
+      }
+
+      // 5.5 Circumstellar Habitable Zone (Goldilocks Zone)
+      if (curSettings.showHabitableZone !== false && !stateRef.current.isCinematicMode) {
+        ctx.save();
+        for (const b of curBodies) {
+          if (b.isPlanet || b.remnantType === 'black_hole') continue;
+          const hz = calculateHabitableZone(b);
+          if (hz.innerRadius <= 0) continue;
+
+          // Frustum check: skip if star's habitable zone is completely outside viewport
+          const scr = worldToScreen(b.x, b.y, curCamera, width, height);
+          const rInScr = hz.innerRadius * curCamera.zoom;
+          const rOutScr = hz.outerRadius * curCamera.zoom;
+
+          if (
+            scr.x + rOutScr < 0 ||
+            scr.x - rOutScr > width ||
+            scr.y + rOutScr < 0 ||
+            scr.y - rOutScr > height ||
+            rOutScr < 6
+          ) {
+            continue;
+          }
+
+          // Soft radiant gold-to-emerald-to-cyan annular gradient
+          const grad = ctx.createRadialGradient(scr.x, scr.y, Math.max(1, rInScr * 0.94), scr.x, scr.y, rOutScr * 1.05);
+          grad.addColorStop(0, 'rgba(245, 158, 11, 0)');
+          grad.addColorStop(0.15, 'rgba(245, 158, 11, 0.05)'); // Warm inner edge (Venus boundary)
+          grad.addColorStop(0.48, 'rgba(16, 185, 129, 0.12)'); // Lush Goldilocks core (Earth boundary)
+          grad.addColorStop(0.85, 'rgba(56, 189, 248, 0.06)'); // Cool outer edge (Mars boundary)
+          grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(scr.x, scr.y, rOutScr * 1.05, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Subtle dashed guide rings
+          ctx.lineWidth = 1.0;
+          ctx.setLineDash([4, 6]);
+
+          // Inner boundary (Runaway greenhouse)
+          ctx.strokeStyle = 'rgba(245, 158, 11, 0.25)';
+          ctx.beginPath();
+          ctx.arc(scr.x, scr.y, rInScr, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Outer boundary (Snowline)
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+          ctx.beginPath();
+          ctx.arc(scr.x, scr.y, rOutScr, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.setLineDash([]);
+
+          // Elegant micro-tag if zoomed in
+          if (curCamera.zoom >= 0.24) {
+            const midR = (rInScr + rOutScr) * 0.5;
+            ctx.font = '9px JetBrains Mono, monospace';
+            ctx.fillStyle = 'rgba(52, 211, 153, 0.80)';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+              `🌱 ЗОНА ОБИТАЕМОСТИ (${hz.innerAU.toFixed(2)} - ${hz.outerAU.toFixed(2)} AU)`,
+              scr.x,
+              scr.y - midR - 4
+            );
+          }
+        }
+        ctx.restore();
       }
 
       // 6. Orbital Trails (Culled by viewport)
@@ -489,8 +610,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         // Genuine proportional sizing: Moon (1.9) is visibly 3.7x smaller than Earth (7.0)
         const r = Math.max(1.0, b.radius * curCamera.zoom);
 
-        // Selection ring
-        if (stateRef.current.selectedBody?.id === b.id) {
+        // Selection ring (hidden in cinematic mode)
+        if (stateRef.current.selectedBody?.id === b.id && !stateRef.current.isCinematicMode) {
           ctx.save();
           ctx.strokeStyle = '#38bdf8';
           ctx.lineWidth = 2;
@@ -560,20 +681,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           ctx.arc(scr.x, scr.y, diskR, 0, Math.PI * 2);
           ctx.fill();
 
-          // Doppler Beaming Asymmetry Overlay (Relativistic beaming on approaching side)
-          if (curSettings.dopplerEffect !== false) {
-            const dopplerOverlay = ctx.createLinearGradient(scr.x - diskR, scr.y, scr.x + diskR, scr.y);
-            dopplerOverlay.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-            dopplerOverlay.addColorStop(0.4, 'rgba(254, 240, 138, 0.2)');
-            dopplerOverlay.addColorStop(0.7, 'rgba(180, 83, 9, 0.0)');
-            dopplerOverlay.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-            ctx.fillStyle = dopplerOverlay;
-            ctx.beginPath();
-            ctx.arc(scr.x, scr.y, diskR, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
           // [LAYER 3] High-Density Swirling Relativistic Accretion Particles in Circular Keplerian Orbits
           ctx.globalCompositeOperation = 'lighter';
           for (let pIdx = 0; pIdx < GLOBAL_ACCRETION_POOL.length; pIdx++) {
@@ -586,21 +693,24 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             const pX = scr.x + Math.cos(curAngle) * curR;
             const pY = scr.y + Math.sin(curAngle) * curR;
 
-            // Relativistic Doppler Beaming factor: Left-moving hemisphere (sin > 0 or cos < 0)
-            const isApproaching = Math.sin(curAngle) > 0;
+            // Smooth relativistic Doppler Beaming factor along line-of-sight velocity:
+            // Continuous sinusoidal modulation without harsh binary white/dark separation
+            const sinA = Math.sin(curAngle);
             const dopplerFactor = curSettings.dopplerEffect !== false
-              ? (isApproaching ? 1.0 + Math.abs(Math.sin(curAngle)) * 1.3 : Math.max(0.2, 1.0 - Math.abs(Math.sin(curAngle)) * 0.6))
+              ? Math.max(0.4, Math.min(1.6, 1.0 + sinA * 0.42))
               : 1.0;
 
             const pSize = Math.max(0.8, ap.size * curCamera.zoom * Math.sqrt(dopplerFactor));
-            const pAlpha = Math.min(1.0, ap.brightness * dopplerFactor);
+            const pAlpha = Math.min(0.9, ap.brightness * dopplerFactor);
 
-            // Plasma color gradient from inner white-hot to outer amber
-            let pCol = '#fef08a';
-            if (isApproaching && curSettings.dopplerEffect !== false) {
-              pCol = ap.radiusNorm < 0.35 ? '#ffffff' : ap.radiusNorm < 0.65 ? '#bae6fd' : '#fde047';
-            } else {
-              pCol = ap.radiusNorm < 0.35 ? '#fef08a' : ap.radiusNorm < 0.65 ? '#f59e0b' : '#ea580c';
+            // Astrophysical accretion plasma color: radial thermal gradient + smooth subtle Doppler tint
+            let pCol = ap.radiusNorm < 0.35 ? '#fef08a' : ap.radiusNorm < 0.65 ? '#f59e0b' : '#ea580c';
+            if (curSettings.dopplerEffect !== false) {
+              if (sinA > 0.45 && ap.radiusNorm < 0.5) {
+                pCol = '#e0f2fe'; // Gentle high-velocity cyan brightening
+              } else if (sinA < -0.45 && ap.radiusNorm > 0.5) {
+                pCol = '#c2410c'; // Gentle redshifted dimming
+              }
             }
 
             ctx.fillStyle = pCol;
@@ -965,8 +1075,73 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         ctx.restore();
       }
 
+      // 7.5. Dynamic System Barycenter (Center of Mass) Indicator
+      if (curSettings.showBarycenter !== false && curBodies.length >= 2) {
+        let totalMass = 0;
+        let cx = 0;
+        let cy = 0;
+        for (const b of curBodies) {
+          totalMass += b.mass;
+          cx += b.mass * b.x;
+          cy += b.mass * b.y;
+        }
+
+        if (totalMass > 0.0001) {
+          cx /= totalMass;
+          cy /= totalMass;
+          const bScr = worldToScreen(cx, cy, curCamera, width, height);
+
+          // Render only when within or near viewport boundaries
+          if (bScr.x >= -100 && bScr.x <= width + 100 && bScr.y >= -100 && bScr.y <= height + 100) {
+            ctx.save();
+            const pulse = 0.82 + 0.18 * Math.sin(timestamp * 0.0035);
+            const rot = timestamp * 0.0005;
+
+            // Outer dashed orbital reticle
+            ctx.strokeStyle = `rgba(245, 158, 11, ${0.75 * pulse})`;
+            ctx.lineWidth = 1.4;
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            ctx.arc(bScr.x, bScr.y, 16, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Rotating inner technical crosshair
+            ctx.setLineDash([]);
+            ctx.strokeStyle = `rgba(251, 191, 36, ${0.9 * pulse})`;
+            ctx.lineWidth = 1.5;
+            const arm = 9;
+            for (let i = 0; i < 4; i++) {
+              const ang = rot + (i * Math.PI) / 2;
+              ctx.beginPath();
+              ctx.moveTo(bScr.x + Math.cos(ang) * 5, bScr.y + Math.sin(ang) * 5);
+              ctx.lineTo(bScr.x + Math.cos(ang) * (5 + arm), bScr.y + Math.sin(ang) * (5 + arm));
+              ctx.stroke();
+            }
+
+            // Central focal core dot
+            ctx.fillStyle = '#f59e0b';
+            ctx.beginPath();
+            ctx.arc(bScr.x, bScr.y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Astronomical Telemetry Tag (hidden in cinematic mode)
+            if (!stateRef.current.isCinematicMode) {
+              ctx.font = '10px JetBrains Mono, monospace';
+              ctx.fillStyle = 'rgba(253, 230, 138, 0.95)';
+              ctx.textAlign = 'left';
+              ctx.fillText('⨁ БАРИЦЕНТР', bScr.x + 20, bScr.y - 4);
+              ctx.font = '9px JetBrains Mono, monospace';
+              ctx.fillStyle = 'rgba(217, 119, 6, 0.95)';
+              ctx.fillText(`ΣM = ${totalMass.toFixed(2)} M☉`, bScr.x + 20, bScr.y + 8);
+            }
+
+            ctx.restore();
+          }
+        }
+      }
+
       // 8. Visual Targeting Halo & Grab Reticle for Hovered Celestial Body
-      if (stateRef.current.hoveredBody && !draggedBodyRef.current) {
+      if (stateRef.current.hoveredBody && !draggedBodyRef.current && !stateRef.current.isCinematicMode) {
         const hb = stateRef.current.hoveredBody;
         const scr = worldToScreen(hb.x, hb.y, curCamera, width, height);
         const radius = Math.max(16, (hb.radius + 12) * curCamera.zoom);
@@ -1007,6 +1182,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
       // 9. Nebula Placement Preview Reticle (when spawn_gas tool & perlin mode)
       if (
+        !stateRef.current.isCinematicMode &&
         stateRef.current.currentTool === 'spawn_gas' &&
         stateRef.current.nebulaSpawnMode === 'perlin' &&
         hoverPosRef.current
@@ -1048,6 +1224,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         ctx.fillText('✨ Облако Перлина (ЛКМ)', scr.x, scr.y - Math.max(16, scrRadius) - 8);
         ctx.restore();
       }
+
+      // Restore outer HiDPI scaling
+      ctx.restore();
     };
 
     animId = requestAnimationFrame(loop);
@@ -1058,12 +1237,17 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     };
   }, [setBodies, setSelectedBody, setCamera, onFpsUpdate, onNotification]);
 
-  // Window resize handler
+  // Window resize handler with HiDPI support
   useEffect(() => {
     const handleResize = () => {
       if (!canvasRef.current) return;
-      canvasRef.current.width = window.innerWidth;
-      canvasRef.current.height = window.innerHeight;
+      const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvasRef.current.width = Math.floor(w * dpr);
+      canvasRef.current.height = Math.floor(h * dpr);
+      canvasRef.current.style.width = `${w}px`;
+      canvasRef.current.style.height = `${h}px`;
     };
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -1112,8 +1296,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const w = canvasRef.current.width;
-    const h = canvasRef.current.height;
+    const w = canvasRef.current.clientWidth || window.innerWidth;
+    const h = canvasRef.current.clientHeight || window.innerHeight;
     const worldPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
 
     // Close any open context menu
@@ -1191,8 +1375,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const w = canvasRef.current.width;
-    const h = canvasRef.current.height;
+    const w = canvasRef.current.clientWidth || window.innerWidth;
+    const h = canvasRef.current.clientHeight || window.innerHeight;
     const worldPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
     hoverPosRef.current = worldPos;
 
@@ -1248,6 +1432,36 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (draggedBodyRef.current) {
       if (draggedBodyRef.current.hasMoved) {
         const movedBody = bodies.find(b => b.id === draggedBodyRef.current?.id);
+        if (movedBody) {
+          // Release Keplerian lock if user manually moved the body
+          movedBody.parentBodyId = undefined;
+          movedBody.orbitRadius = undefined;
+
+          // Check if body was dragged and dropped directly inside a star or black hole
+          for (const other of bodies) {
+            if (other.id === movedBody.id) continue;
+            if (!other.isPlanet || other.remnantType === 'black_hole') {
+              const d = Math.hypot(movedBody.x - other.x, movedBody.y - other.y);
+              if (d <= other.radius + movedBody.radius) {
+                handleInelasticBodyCollision(
+                  other,
+                  movedBody,
+                  stateRef.current.particles,
+                  (victim) => {
+                    const cIdx = stateRef.current.bodies.findIndex(b => b.id === victim.id);
+                    if (cIdx !== -1) stateRef.current.bodies.splice(cIdx, 1);
+                    setBodies(prev => prev.filter(b => b.id !== victim.id));
+                    if (stateRef.current.selectedBody?.id === victim.id) {
+                      setSelectedBody(null);
+                    }
+                  },
+                  onNotification
+                );
+                break;
+              }
+            }
+          }
+        }
         onSaveSnapshot?.(`Перемещение: ${movedBody?.name || 'тела'}`);
       } else {
         // Pure click without dragging: select object for telemetry & actions without forcing 3D view
@@ -1345,8 +1559,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     e.preventDefault();
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const w = canvasRef.current.width;
-    const h = canvasRef.current.height;
+    const w = canvasRef.current.clientWidth || window.innerWidth;
+    const h = canvasRef.current.clientHeight || window.innerHeight;
     const worldPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
 
     let clicked: CelestialBody | null = null;
@@ -1399,8 +1613,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
-    const w = canvasRef.current.width;
-    const h = canvasRef.current.height;
+    const w = canvasRef.current.clientWidth || window.innerWidth;
+    const h = canvasRef.current.clientHeight || window.innerHeight;
     const mouseBefore = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
 
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
@@ -1427,8 +1641,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const w = canvasRef.current.width;
-    const h = canvasRef.current.height;
+    const w = canvasRef.current.clientWidth || window.innerWidth;
+    const h = canvasRef.current.clientHeight || window.innerHeight;
     const worldPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camera, w, h);
 
     let clicked: CelestialBody | null = null;
@@ -1470,11 +1684,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       />
 
       {/* Drag Vector Launch preview */}
-      {dragVector && canvasRef.current && (
+      {dragVector && !isCinematicMode && canvasRef.current && (
         <svg className="absolute inset-0 pointer-events-none w-full h-full z-10">
           {(() => {
-            const w = canvasRef.current.width;
-            const h = canvasRef.current.height;
+            const w = canvasRef.current.clientWidth || window.innerWidth;
+            const h = canvasRef.current.clientHeight || window.innerHeight;
             const p1 = worldToScreen(dragVector.start.x, dragVector.start.y, camera, w, h);
             const p2 = worldToScreen(dragVector.current.x, dragVector.current.y, camera, w, h);
             return (
@@ -1720,7 +1934,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       )}
 
       {/* Deep Space Navigation & Frustum Culling HUD Badge */}
-      <div className="absolute bottom-4 left-4 z-20 pointer-events-none glass-panel rounded-xl px-3 py-1.5 flex items-center gap-3 text-[11px] font-mono text-slate-400">
+      <div className={`absolute bottom-4 left-4 z-20 pointer-events-none glass-panel rounded-xl px-3 py-1.5 flex items-center gap-3 text-[11px] font-mono text-slate-400 transition-all duration-500 ease-in-out ${
+        isCinematicMode ? 'opacity-0 -translate-x-12 pointer-events-none invisible' : 'opacity-100 translate-x-0'
+      }`}>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-slate-200 font-semibold">Сектор [{curSectorX}, {curSectorY}]</span>

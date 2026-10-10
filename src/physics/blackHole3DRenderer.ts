@@ -149,13 +149,13 @@ function renderLensedBackDisk(
   ctx.arc(0, 0, innerR, 0, Math.PI * 2, true);
   ctx.fill();
 
-  // Relativistic Doppler Beaming intensity overlay
-  // Left half (approaching matter) is significantly brighter!
+  // Relativistic Doppler Beaming intensity overlay:
+  // Smooth continuous transition from approaching blueshifted matter to receding dimmed matter
   const beamGrad = ctx.createLinearGradient(-outerR, 0, outerR, 0);
-  beamGrad.addColorStop(0, 'rgba(56, 189, 248, 0.65)'); // Luminous blue/cyan
-  beamGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.3)');
-  beamGrad.addColorStop(0.65, 'rgba(185, 28, 28, 0.45)'); // Dimmed redshifted
-  beamGrad.addColorStop(1, 'rgba(2, 6, 23, 0.7)');
+  beamGrad.addColorStop(0, 'rgba(56, 189, 248, 0.35)'); // Luminous sapphire/cyan
+  beamGrad.addColorStop(0.35, 'rgba(224, 242, 254, 0.20)');
+  beamGrad.addColorStop(0.65, 'rgba(245, 158, 11, 0.15)'); // Mild reddish amber
+  beamGrad.addColorStop(1, 'rgba(15, 23, 42, 0.40)');    // Gentle dimming
 
   ctx.globalCompositeOperation = 'lighter';
   ctx.fillStyle = beamGrad;
@@ -206,13 +206,13 @@ function renderFrontAccretionDisk(
   ctx.fill();
 
   // Relativistic Doppler beaming on disk:
-  // Matter moving towards camera on left side is violently blueshifted and brightened (delta^4)
+  // Smooth continuous transition from approaching matter to receding matter
   ctx.globalCompositeOperation = 'screen';
   const beamGrad = ctx.createLinearGradient(-rDiskOuter, 0, rDiskOuter, 0);
-  beamGrad.addColorStop(0, 'rgba(56, 189, 248, 0.7)');
-  beamGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.5)');
-  beamGrad.addColorStop(0.7, 'rgba(185, 28, 28, 0.3)');
-  beamGrad.addColorStop(1, 'rgba(15, 23, 42, 0.5)');
+  beamGrad.addColorStop(0, 'rgba(56, 189, 248, 0.45)');  // Smooth blueshift
+  beamGrad.addColorStop(0.35, 'rgba(224, 242, 254, 0.25)');
+  beamGrad.addColorStop(0.65, 'rgba(245, 158, 11, 0.15)'); // Soft redshift
+  beamGrad.addColorStop(1, 'rgba(15, 23, 42, 0.35)');
 
   ctx.fillStyle = beamGrad;
   ctx.beginPath();

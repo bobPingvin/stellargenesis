@@ -5,9 +5,9 @@
 
 import React from 'react';
 import { CelestialBody } from '../types';
-import { SPECTRAL_DATA, getSpectralClass, SPEED_OF_LIGHT, VISUAL_C_DOPPLER } from '../physics/engine';
+import { SPECTRAL_DATA, getSpectralClass, SPEED_OF_LIGHT, VISUAL_C_DOPPLER, getRemainingFuelPercent } from '../physics/engine';
 import { formatRadiusKm, getRadiusRatioToEarth } from '../physics/celestialScales';
-import { Eye, Flame, Trash2, Zap, HelpCircle, Activity, Sparkles, X, Orbit, Compass } from 'lucide-react';
+import { Eye, Flame, Trash2, Zap, HelpCircle, Activity, Sparkles, X, Orbit, Compass, Globe } from 'lucide-react';
 
 interface StarInspectorProps {
   selectedBody: CelestialBody | null;
@@ -15,10 +15,13 @@ interface StarInspectorProps {
   onToggleFollow: () => void;
   onPumpMass: () => void;
   onFeedBlackHole?: (amount: number) => void;
-  onTriggerSupernova: () => void;
+  onTriggerSupernova?: () => void;
   onDeleteBody: () => void;
   onClose?: () => void;
   onOpen3D?: () => void;
+  evolutionSpeed?: number;
+  onUpdateEvolutionSpeed?: (speed: number) => void;
+  isCinematicMode?: boolean;
 }
 
 export const StarInspector: React.FC<StarInspectorProps> = ({
@@ -30,7 +33,10 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   onTriggerSupernova,
   onDeleteBody,
   onClose,
-  onOpen3D
+  onOpen3D,
+  evolutionSpeed,
+  onUpdateEvolutionSpeed,
+  isCinematicMode = false
 }) => {
   // If no body is selected, don't show inspector to keep interface completely clean
   if (!selectedBody) {
@@ -54,7 +60,12 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   let equilFillColor = '#10b981';
   let equilDesc = 'Гравитационное сжатие идеально уравновешено давлением излучения.';
 
-  if (b.remnantType === 'black_hole') {
+  if (b.isPlanet) {
+    equilTitle = 'ПЛАНЕТАРНАЯ СТАБИЛЬНОСТЬ';
+    equilColor = 'text-blue-400';
+    equilFillColor = '#60a5fa';
+    equilDesc = 'Собственное тяготение уравновешено механической прочностью коры и несжимаемостью недр.';
+  } else if (b.remnantType === 'black_hole') {
     equilTitle = 'ГРАВИТАЦИОННАЯ СИНГУЛЯРНОСТЬ';
     equilColor = 'text-purple-400';
     equilFillColor = '#c084fc';
@@ -82,7 +93,9 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   }
 
   return (
-    <aside className="absolute top-16 right-3 w-80 glass-panel rounded-2xl p-4 z-30 shadow-2xl flex flex-col gap-3 pointer-events-auto max-h-[calc(100vh-80px)] overflow-y-auto animate-in fade-in duration-200">
+    <aside className={`absolute top-16 right-3 w-80 glass-panel rounded-2xl p-4 z-30 shadow-2xl flex flex-col gap-3 pointer-events-auto max-h-[calc(100vh-80px)] overflow-y-auto animate-in fade-in duration-200 transition-all duration-500 ease-in-out ${
+      isCinematicMode ? 'opacity-0 translate-x-full pointer-events-none invisible' : 'opacity-100 translate-x-0'
+    }`}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-2 truncate">
@@ -130,25 +143,66 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
         </button>
       )}
 
-      {/* Spectral Banner */}
-      <div
-        className="rounded-xl p-3 border flex items-center justify-between transition-colors"
-        style={{
-          background: `linear-gradient(135deg, rgba(15, 23, 42, 0.9), ${specInfo.halo})`,
-          borderColor: specInfo.color + '40'
-        }}
-      >
-        <div>
-          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wide">
-            Спектральный класс
+      {/* Spectral or Planetary Banner */}
+      {b.isPlanet ? (
+        <div className="rounded-xl p-3 border flex items-center justify-between transition-colors bg-gradient-to-r from-blue-950/80 to-slate-900 border-blue-500/40">
+          <div>
+            <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wide">
+              Классификация тела
+            </div>
+            <div className="text-xs font-bold text-slate-100 mt-0.5">
+              {b.parentBodyId ? 'Естественный спутник' : b.mass > 0.005 ? 'Газовый гигант' : 'Планета земной группы'}
+            </div>
+            <p className="text-[10px] text-slate-300 mt-1 leading-snug">
+              {b.customDescription || 'Холодное небесное тело на устойчивой кеплеровской орбите без термоядерных реакций.'}
+            </p>
           </div>
-          <div className="text-xs font-bold text-slate-100 mt-0.5">{specInfo.russianName}</div>
-          <p className="text-[10px] text-slate-300 mt-1 leading-snug">{specInfo.description}</p>
         </div>
-      </div>
+      ) : (
+        <div
+          className="rounded-xl p-3 border flex items-center justify-between transition-colors"
+          style={{
+            background: `linear-gradient(135deg, rgba(15, 23, 42, 0.9), ${specInfo.halo})`,
+            borderColor: specInfo.color + '40'
+          }}
+        >
+          <div>
+            <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wide">
+              Спектральный класс
+            </div>
+            <div className="text-xs font-bold text-slate-100 mt-0.5">{specInfo.russianName}</div>
+            <p className="text-[10px] text-slate-300 mt-1 leading-snug">{specInfo.description}</p>
+          </div>
+        </div>
+      )}
 
       {/* Stellar Evolution & Fate Telemetry */}
       {(() => {
+        if (b.isPlanet) {
+          return (
+            <div className="glass-card rounded-xl p-3 flex flex-col gap-2 font-mono text-xs border border-blue-500/30 bg-blue-950/20">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] uppercase tracking-wider">Орбитальный статус</span>
+                <span className="px-2 py-0.5 rounded-full border border-blue-500/40 bg-blue-500/20 text-blue-300 text-[10px] font-semibold">
+                  {b.parentBodyId ? 'Спутник' : 'Планета'}
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-slate-400">Состояние:</span>
+                <span className="text-[11px] font-bold text-cyan-300">Стабильная кеплеровская орбита</span>
+              </div>
+
+              <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/80">
+                <span className="text-[10px] text-slate-400">Гравитационная привязка:</span>
+                <span className="text-[11px] text-slate-200">
+                  {b.parentBodyId ? 'Обращается вокруг планеты-хозяина' : 'Обращается вокруг родительской звезды'}
+                </span>
+              </div>
+            </div>
+          );
+        }
+
         let stageName = 'Главная последовательность';
         let stageColor = 'text-amber-300';
         let stageBadgeBg = 'bg-amber-500/20 border-amber-500/40 text-amber-300';
@@ -204,7 +258,17 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
           }
         }
 
-        const fuelPercent = Math.round((b.composition.H + b.composition.He + (b.mass >= 8 ? b.composition.C : 0)) * 100);
+        const fuelPercent = getRemainingFuelPercent(b);
+
+        // Active burning nucleosynthesis reaction
+        let burningReaction = '1H + 1H ➔ 4He (Синтез водорода в ядре)';
+        if (b.composition.H <= 0.05 && b.composition.He > 0.05) {
+          burningReaction = '3 4He ➔ 12C (Тройная α-реакция, горение гелия)';
+        } else if (b.mass >= 8.0 && b.composition.He <= 0.20 && b.composition.Fe < 0.35) {
+          burningReaction = '12C + 16O ➔ 28Si ➔ 56Fe (Синтез железа)';
+        } else if (b.composition.Fe >= 0.35 || fuelPercent <= 5) {
+          burningReaction = '⚠️ Железный кризис (Коллапс неизбежен!)';
+        }
 
         return (
           <div className="glass-card rounded-xl p-3 flex flex-col gap-2 font-mono text-xs">
@@ -229,7 +293,7 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
             </div>
 
             {!b.remnantType && (
-              <div className="flex flex-col gap-1 pt-1 border-t border-slate-800/80">
+              <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800/80">
                 <div className="flex justify-between text-[10px]">
                   <span className="text-slate-400">Ядерное топливо:</span>
                   <span className={`font-bold ${fuelPercent < 15 ? 'text-rose-400' : fuelPercent < 45 ? 'text-amber-400' : 'text-emerald-400'}`}>
@@ -244,8 +308,34 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
                     style={{ width: `${Math.min(100, Math.max(0, fuelPercent))}%` }}
                   />
                 </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-slate-400">Активный процесс:</span>
+                  <span className="text-[10px] text-amber-300 font-semibold">{burningReaction}</span>
+                </div>
+
+                {onUpdateEvolutionSpeed && (
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+                    <span className="text-[9px] text-slate-400">Скорость эволюции:</span>
+                    <div className="flex items-center gap-1">
+                      {[1, 5, 25, 100].map((spd) => (
+                        <button
+                          key={spd}
+                          onClick={() => onUpdateEvolutionSpeed(spd)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition ${
+                            (evolutionSpeed ?? 1) === spd
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                          }`}
+                        >
+                          {spd}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[9px] text-slate-500 leading-tight">
-                  Коллапс произойдет автоматически по физическим законам при исчерпании топлива.
+                  Взрыв сверхновой или сброс туманности произойдет полностью автономно без нажатия кнопок, когда выгорит все топливо.
                 </p>
               </div>
             )}
@@ -431,8 +521,53 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
         <p className="text-[10px] text-slate-400 leading-tight pt-1">{equilDesc}</p>
       </div>
 
-      {/* Dynamic Spectral Analysis & Real-Time Composition Graph Panel */}
-      {(() => {
+      {/* Planetary Characteristics or Dynamic Spectral Analysis & Real-Time Composition Graph Panel */}
+      {b.isPlanet ? (
+        <div className="glass-card rounded-xl p-3 flex flex-col gap-2 font-mono text-xs border border-blue-500/20">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+            <span className="flex items-center gap-1.5">
+              <Globe size={13} className="text-cyan-400" />
+              <span>Планетарные характеристики</span>
+            </span>
+            <span className="text-[9px] text-cyan-300/80 bg-blue-950/60 border border-blue-500/30 px-1.5 py-0.5 rounded">
+              Кеплеровская орбита
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-slate-400">Масса (к Земле):</span>
+              <div className="font-bold text-cyan-300 mt-0.5">{(b.mass * 333000).toFixed(2)} M⊕</div>
+            </div>
+            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-slate-400">Радиус (к Земле):</span>
+              <div className="font-bold text-emerald-300 mt-0.5">{getRadiusRatioToEarth(b).toFixed(2)} R⊕</div>
+            </div>
+            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-slate-400">Период осевой:</span>
+              <div className="font-bold text-amber-300 mt-0.5">{b.rotationPeriodHours ?? 24} ч</div>
+            </div>
+            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+              <span className="text-slate-400">Наклон оси:</span>
+              <div className="font-bold text-slate-200 mt-0.5">{((b.axialTilt ?? 0) * 180 / Math.PI).toFixed(1)}°</div>
+            </div>
+          </div>
+
+          {b.hasRings && (
+            <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-500/30 text-[10px] text-amber-300 flex items-center gap-1.5">
+              <span>🪐</span>
+              <span>Планетарная кольцевая система ледяных и пылевых частиц</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1 pt-1 border-t border-slate-800/80 text-[10px]">
+            <span className="text-slate-400">Термодинамика недр:</span>
+            <span className="text-slate-300">
+              Температура поверхности {Math.round(b.Teff)} K. Термоядерное горение отсутствует, гидростатическая форма поддерживается твёрдой силикатно-металлической мантией или плотной газовой оболочкой.
+            </span>
+          </div>
+        </div>
+      ) : (() => {
         const peakWavelengthNm = b.Teff > 0 ? Math.round(2898000 / Math.max(100, b.Teff)) : 0;
         const hPct = Math.round(b.composition.H * 100);
         const hePct = Math.round(b.composition.He * 100);
@@ -741,23 +876,12 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
               <Zap size={14} /> Вдуть +2.0 M☉ (Форсировать)
             </button>
 
-            <div className="grid grid-cols-2 gap-2">
-              {!b.isRemnant && (
-                <button
-                  onClick={onTriggerSupernova}
-                  className="py-1.5 px-2.5 rounded-xl bg-rose-950/80 border border-rose-600/50 text-rose-300 hover:bg-rose-900 text-xs font-mono transition flex items-center justify-center gap-1"
-                >
-                  <Flame size={12} /> Вспышка Сверхновой
-                </button>
-              )}
-
-              <button
-                onClick={onDeleteBody}
-                className={`py-1.5 px-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 text-xs font-mono transition flex items-center justify-center gap-1 ${b.isRemnant ? 'col-span-2' : ''}`}
-              >
-                <Trash2 size={12} /> Уничтожить
-              </button>
-            </div>
+            <button
+              onClick={onDeleteBody}
+              className="w-full py-1.5 px-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 text-xs font-mono transition flex items-center justify-center gap-1"
+            >
+              <Trash2 size={12} /> Уничтожить
+            </button>
           </>
         )}
       </div>

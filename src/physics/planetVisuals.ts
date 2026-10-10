@@ -57,16 +57,6 @@ export function renderDistinctCelestialBody(
     ctx.beginPath();
     ctx.arc(0, 0, r * 3.8, 0, Math.PI * 2);
     ctx.fill();
-
-    // Solar Prominence / Flares
-    for (let f = 0; f < 5; f++) {
-      const fAngle = f * 1.25 + time * 0.3;
-      const fDist = r * 1.25 + Math.sin(time * 2.5 + f) * (r * 0.2);
-      ctx.fillStyle = 'rgba(254, 215, 170, 0.8)';
-      ctx.beginPath();
-      ctx.arc(Math.cos(fAngle) * fDist, Math.sin(fAngle) * fDist, Math.max(2, r * 0.15), 0, Math.PI * 2);
-      ctx.fill();
-    }
   } else if (b.atmosphereColor || planetKey === 'earth' || planetKey === 'venus') {
     // Delicate planetary atmospheric haze
     const atCol = b.atmosphereColor || (planetKey === 'earth' ? '#38bdf8' : '#fef08a');
@@ -90,6 +80,20 @@ export function renderDistinctCelestialBody(
     ctx.fill();
   }
   ctx.restore();
+
+  // 2.5. ANIMATED MAGNETIC STELLAR PROMINENCE LOOPS
+  const isStarLike = !b.isPlanet && b.remnantType !== 'black_hole' && b.remnantType !== 'pulsar';
+  if (isStarLike && settings.showProminences !== false) {
+    renderStellarProminences(
+      ctx,
+      r,
+      planetKey === 'sun' ? '#fed7aa' : starColor,
+      planetKey === 'sun' ? 'rgba(249, 115, 22, 0.7)' : starHalo,
+      time,
+      b.mass,
+      planetKey === 'sun'
+    );
+  }
 
   // 3. MAIN PLANET/STAR DISK SHADING
   ctx.save();
@@ -238,14 +242,18 @@ export function renderDistinctCelestialBody(
     ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
   }
 
-  // Day/Night 3D shadow terminator across globe
-  const termGrad = ctx.createLinearGradient(-r, 0, r, 0);
-  termGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  termGrad.addColorStop(0.65, 'rgba(0, 0, 0, 0.05)');
-  termGrad.addColorStop(0.85, 'rgba(2, 6, 23, 0.55)');
-  termGrad.addColorStop(1, 'rgba(2, 6, 23, 0.85)');
-  ctx.fillStyle = termGrad;
-  ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+  // Day/Night 3D shadow terminator across globe (Only for non-illuminating planets and moons)
+  // Stars emit their own omnidirectional light and do NOT have an artificial white/black split!
+  if (b.isPlanet && planetKey !== 'sun') {
+    // Determine sun direction if in multi-body system, or standard soft spherical relief
+    const termGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.1, 0, 0, r);
+    termGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // Subtle specular highlight
+    termGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
+    termGrad.addColorStop(0.85, 'rgba(2, 6, 23, 0.40)');    // Soft planetary terminator
+    termGrad.addColorStop(1, 'rgba(2, 6, 23, 0.70)');
+    ctx.fillStyle = termGrad;
+    ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+  }
 
   ctx.restore();
 
@@ -295,6 +303,83 @@ function render2DRings(
   ctx.arc(0, 0, r * 1.85, 0, Math.PI * 2);
   ctx.arc(0, 0, r * 1.75, 0, Math.PI * 2, true);
   ctx.fill();
+
+  ctx.restore();
+}
+
+/**
+ * Renders animated magnetic plasma prominence loops & coronal mass flares
+ */
+export function renderStellarProminences(
+  ctx: CanvasRenderingContext2D,
+  r: number,
+  starColor: string,
+  starHalo: string,
+  time: number,
+  mass: number = 1.0,
+  isSun: boolean = false
+) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+
+  const numLoops = isSun ? 6 : Math.min(8, Math.max(4, Math.floor(mass * 3)));
+
+  for (let i = 0; i < numLoops; i++) {
+    // Each loop has its own rotational phase, base footprint span, and loop height
+    const baseAngle = i * ((Math.PI * 2) / numLoops) + Math.sin(i * 13.7) * 0.35 + time * (0.08 + (i % 3) * 0.03);
+    const spanAngle = 0.32 + Math.sin(time * 0.35 + i * 2.3) * 0.12;
+    const theta1 = baseAngle - spanAngle * 0.5;
+    const theta2 = baseAngle + spanAngle * 0.5;
+
+    // Footprints on the stellar surface
+    const p1x = Math.cos(theta1) * r * 0.96;
+    const p1y = Math.sin(theta1) * r * 0.96;
+    const p2x = Math.cos(theta2) * r * 0.96;
+    const p2y = Math.sin(theta2) * r * 0.96;
+
+    // Loop apex pulsating outwards along magnetic field line
+    const loopHeightFactor = 1.25 + 0.42 * Math.sin(time * (1.2 + i * 0.4) + i * 1.7);
+    const midAngle = baseAngle;
+
+    // Control points for a curved magnetic dipole arch
+    const cp1x = Math.cos(theta1 + 0.12) * r * (loopHeightFactor * 1.08);
+    const cp1y = Math.sin(theta1 + 0.12) * r * (loopHeightFactor * 1.08);
+    const cp2x = Math.cos(theta2 - 0.12) * r * (loopHeightFactor * 1.08);
+    const cp2y = Math.sin(theta2 - 0.12) * r * (loopHeightFactor * 1.08);
+
+    // Dynamic flare brightness pulsation
+    const flarePulse = 0.55 + 0.45 * Math.sin(time * 2.2 + i * 3.1);
+
+    // 1. Soft glowing outer magnetic tube
+    ctx.lineWidth = Math.max(2.0, r * 0.09);
+    ctx.strokeStyle = starHalo;
+    ctx.globalAlpha = 0.45 * flarePulse;
+    ctx.beginPath();
+    ctx.moveTo(p1x, p1y);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2x, p2y);
+    ctx.stroke();
+
+    // 2. Hot plasma core filament
+    ctx.lineWidth = Math.max(1.2, r * 0.045);
+    ctx.strokeStyle = starColor;
+    ctx.globalAlpha = 0.85 * flarePulse;
+    ctx.beginPath();
+    ctx.moveTo(p1x, p1y);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2x, p2y);
+    ctx.stroke();
+
+    // 3. Plasmoid bead circulating along the arch
+    const beadPhase = (time * (0.6 + (i % 2) * 0.4) + i * 0.3) % 1.0;
+    const u = 1 - beadPhase;
+    const bx = u * u * u * p1x + 3 * u * u * beadPhase * cp1x + 3 * u * beadPhase * beadPhase * cp2x + beadPhase * beadPhase * beadPhase * p2x;
+    const by = u * u * u * p1y + 3 * u * u * beadPhase * cp1y + 3 * u * beadPhase * beadPhase * cp2y + beadPhase * beadPhase * beadPhase * p2y;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.9 * flarePulse;
+    ctx.beginPath();
+    ctx.arc(bx, by, Math.max(1.5, r * 0.05), 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.restore();
 }

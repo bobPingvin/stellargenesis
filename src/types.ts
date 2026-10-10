@@ -106,6 +106,9 @@ export interface CelestialBody {
   ringOuterRadius?: number;
   ringColor?: string;
   parentBodyId?: string;
+  orbitRadius?: number;          // Patched conic orbital distance from parent
+  orbitAngle?: number;           // Current orbital true anomaly / angle around parent
+  orbitAngularVelocity?: number; // Angular orbital velocity around parent planet
   axialTilt?: number;            // in radians
   rotationPeriodHours?: number;  // in Earth hours
   atmosphereColor?: string;
@@ -191,4 +194,7 @@ export interface SimulationSettings {
   maxParticles?: number;           // Dynamic particle cap (300 - 2000)
   showSpacetimeGrid?: boolean;     // Einstein spacetime fabric coordinate grid
   adaptiveGrid?: boolean;          // Dynamic LOD grid sampling
+  showBarycenter?: boolean;        // System barycenter (center of mass) indicator
+  showProminences?: boolean;       // Animated magnetic stellar plasma loops & coronal flares
+  showHabitableZone?: boolean;     // Circumstellar Goldilocks / Habitable Zone visualization
 }

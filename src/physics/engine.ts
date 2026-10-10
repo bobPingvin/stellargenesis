@@ -601,9 +601,10 @@ function handleTidalDisruptionEvent(
  * @param onRemoveBody - Callback to dispose of merged body
  * @param onNotification - Optional notification callback
  */
-function handleInelasticBodyCollision(
+export function handleInelasticBodyCollision(
   bodyA: CelestialBody,
   bodyB: CelestialBody,
+  particles: Particle[],
   onRemoveBody: (victim: CelestialBody) => void,
   onNotification?: (title: string, body: string, type: 'supernova' | 'blackhole' | 'info') => void
 ): void {
@@ -626,6 +627,58 @@ function handleInelasticBodyCollision(
   primary.vy = (primary.vy * primary.mass + secondary.vy * secondary.mass) / totalMass;
   primary.mass = totalMass;
   primary.Tcore += IMPACT_KINETIC_HEATING_MK;
+
+  // Stellar Incineration & Absorption (Star, White Dwarf, or Pulsar swallowing a planet/asteroid/moon)
+  if (!primary.isPlanet) {
+    const splashCount = Math.min(32, Math.max(12, Math.round(secondary.mass * 400 + 14)));
+    const impactAngle = Math.atan2(secondary.y - primary.y, secondary.x - primary.x);
+    for (let p = 0; p < splashCount; p++) {
+      const spreadAngle = impactAngle + (Math.random() - 0.5) * 1.8;
+      const speed = Math.random() * 4.5 + 2.0;
+      particles.push(createParticle(
+        primary.x + Math.cos(spreadAngle) * (primary.radius + 3.5),
+        primary.y + Math.sin(spreadAngle) * (primary.radius + 3.5),
+        primary.vx + Math.cos(spreadAngle) * speed,
+        primary.vy + Math.sin(spreadAngle) * speed,
+        p % 3 === 0 ? '#fef08a' : p % 3 === 1 ? '#f97316' : '#ef4444',
+        Math.random() * 3.5 + 1.8,
+        Math.random() * 45 + 30,
+        false, // energetic plasma blast
+        0.001
+      ));
+    }
+    sound.playTidalDisruption();
+    onNotification?.(
+      '☀️ Поглощение звездой',
+      `${primary.name} поглотила и испарила ${secondary.name} в раскаленной плазме!`,
+      'info'
+    );
+  } else {
+    // Planet-planet inelastic impact
+    const debrisCount = 14;
+    for (let p = 0; p < debrisCount; p++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 2.5 + 0.8;
+      particles.push(createParticle(
+        secondary.x,
+        secondary.y,
+        primary.vx + Math.cos(angle) * speed,
+        primary.vy + Math.sin(angle) * speed,
+        '#f59e0b',
+        Math.random() * 2.0 + 1.0,
+        15,
+        true,
+        0.001
+      ));
+    }
+    sound.playMassPump();
+    onNotification?.(
+      '💥 Коллизия тел',
+      `${primary.name} столкнулась с ${secondary.name} и поглотила её массу.`,
+      'info'
+    );
+  }
+
   onRemoveBody(secondary);
 }
 
@@ -641,8 +694,7 @@ function computeAccelerations(
   onRemoveBody: (victim: CelestialBody) => void,
   onNotification?: (title: string, body: string, type: 'supernova' | 'blackhole' | 'info') => void
 ) {
-  const n = bodies.length;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < bodies.length; i++) {
     bodies[i].ax = 0;
     bodies[i].ay = 0;
     // Reset momentary disruption state if not actively torn
@@ -650,15 +702,31 @@ function computeAccelerations(
     bodies[i].tidalStretch = undefined;
   }
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < bodies.length; i++) {
     const b1 = bodies[i];
-    for (let j = i + 1; j < n; j++) {
+    if (!b1) continue;
+    for (let j = i + 1; j < bodies.length; j++) {
       const b2 = bodies[j];
+      if (!b2) continue;
       const dx = b2.x - b1.x;
       const dy = b2.y - b1.y;
       const distSq = dx * dx + dy * dy;
       const dist = Math.sqrt(distSq);
-      const denom = Math.pow(distSq + eps * eps, 1.5);
+      // Realistic Adaptive Plummer Softening:
+      // Heavy stars (e.g. Sun, supergiants) have extended gravitational wells.
+      // Host planets and their orbiting satellites use high-resolution local gravitational softening,
+      // avoiding artificial tidal dispersion that would destabilize moon orbits.
+      let effectiveEps = eps;
+      if (b1.parentBodyId === b2.id || b2.parentBodyId === b1.id) {
+        effectiveEps = Math.max(0.4, Math.min(eps, Math.min(b1.radius, b2.radius) * 0.35));
+      } else if (b1.planetKey === 'sun' || b2.planetKey === 'sun' || (b1.mass >= 0.5 && b2.mass >= 0.5)) {
+        effectiveEps = Math.min(eps, 6.0);
+      } else if (b1.parentBodyId && b2.parentBodyId) {
+        // Minor satellites of same or different planets: smooth out chaotic micro-disturbances
+        effectiveEps = Math.max(eps, 16.0);
+      }
+
+      const denom = Math.pow(distSq + effectiveEps * effectiveEps, 1.5);
 
       const forceScalar = G / denom;
       b1.ax += forceScalar * b2.mass * dx;
@@ -683,10 +751,30 @@ function computeAccelerations(
         }
       }
 
-      // Inelastic collision & ordinary accretion if not black hole disruption
-      const collisionDist = b1.radius + b2.radius;
-      if (distSq < collisionDist * collisionDist) {
-        handleInelasticBodyCollision(b1, b2, onRemoveBody, onNotification);
+      // Realistic inelastic collision & stellar incineration:
+      // A star is a superheated incandescent sphere of plasma. Any planet, moon, or asteroid
+      // that touches the stellar photosphere or falls inside is vaporized and swallowed into the star!
+      let collisionDist = b1.radius + b2.radius;
+      if (b1.parentBodyId === b2.id || b2.parentBodyId === b1.id) {
+        // Satellite plunging directly into its own parent planet core
+        collisionDist = (b1.radius + b2.radius) * 0.35;
+      } else if (b1.parentBodyId && b2.parentBodyId && b1.parentBodyId === b2.parentBodyId) {
+        // Co-orbiting sibling moons of the same parent
+        collisionDist = Math.min(b1.radius, b2.radius) * 0.5;
+      } else if (!b1.isPlanet && !b2.isPlanet) {
+        // Star-star binary contact
+        collisionDist = (b1.radius + b2.radius) * 0.5;
+      } else if (!b1.isPlanet || !b2.isPlanet) {
+        // Star swallowing a planet/comet/asteroid:
+        // Any object touching the stellar envelope or falling inside is incinerated and absorbed!
+        collisionDist = (b1.radius + b2.radius) * 0.95;
+      } else {
+        // Planet-to-planet solid impact
+        collisionDist = (b1.radius + b2.radius) * 0.55;
+      }
+
+      if (distSq < collisionDist * collisionDist || (!b1.isPlanet && dist < b1.radius) || (!b2.isPlanet && dist < b2.radius)) {
+        handleInelasticBodyCollision(b1, b2, particles, onRemoveBody, onNotification);
         return;
       }
     }
@@ -731,6 +819,30 @@ export function getDopplerBeamingIntensity(z: number): number {
  */
 export function computeDopplerShift(body: CelestialBody): number {
   return computeDopplerFromVx(body.vx);
+}
+
+/**
+ * Calculates remaining thermonuclear fuel percentage (0 - 100%) based on stellar composition.
+ * As hydrogen burns into helium and helium into carbon/iron, this accurately decreases from 100% to 0%.
+ *
+ * @param b - Celestial body target
+ * @returns number - Remaining fuel percentage [0..100]
+ */
+export function getRemainingFuelPercent(b: CelestialBody): number {
+  if (b.remnantType || b.isPlanet) return 0;
+  if (!b.composition) return 0;
+
+  if (b.mass < 8.0) {
+    // Low/intermediate mass star: H is primary fuel (1.0 weight), He is secondary fuel (0.35 weight).
+    // Initial standard composition: H=0.74, He=0.24 => baseline = 0.74 + 0.35 * 0.24 = 0.824
+    const weightedFuel = b.composition.H + 0.35 * b.composition.He;
+    return Math.max(0, Math.min(100, Math.round((weightedFuel / 0.824) * 100)));
+  } else {
+    // Massive star (M >= 8 M☉): H (1.0), He (0.4), C (0.2). Fe is inert ash that cannot fuse exothermically.
+    // Initial standard composition: 0.74 + 0.4*0.24 + 0.2*0.018 = 0.8396
+    const weightedFuel = b.composition.H + 0.4 * b.composition.He + 0.2 * b.composition.C;
+    return Math.max(0, Math.min(100, Math.round((weightedFuel / 0.84) * 100)));
+  }
 }
 
 /**
@@ -830,6 +942,47 @@ export function stepPhysics(
     }
   }
 
+  // Step 3.5: Astrophysical Patched Conic Keplerian Moon Synchronization
+  // For satellites bound to a parent planet (e.g. Moon orbiting Earth, Galilean moons orbiting Jupiter),
+  // this maintains eternal Keplerian orbital stability against numerical accumulation errors.
+  // If the parent body is removed, the satellite seamlessly decouples into an independent heliocentric orbit.
+  const parentMap = new Map<string, CelestialBody>();
+  for (let i = 0; i < bodies.length; i++) {
+    parentMap.set(bodies[i].id, bodies[i]);
+  }
+
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i];
+    if (b.parentBodyId) {
+      const parent = parentMap.get(b.parentBodyId);
+      if (parent) {
+        if (b.orbitRadius === undefined) {
+          const dx = b.x - parent.x;
+          const dy = b.y - parent.y;
+          b.orbitRadius = Math.max(parent.radius + b.radius + 1.2, Math.hypot(dx, dy));
+          b.orbitAngle = Math.atan2(dy, dx);
+          const dir = b.planetKey === 'triton' ? -1 : 1; // Triton is famous for retrograde orbit
+          b.orbitAngularVelocity = dir * Math.sqrt((G * parent.mass) / Math.pow(b.orbitRadius, 3));
+        }
+
+        // Advance true anomaly along stable Keplerian orbit around parent
+        b.orbitAngle = (b.orbitAngle ?? 0) + (b.orbitAngularVelocity ?? 0.02) * dt;
+        b.x = parent.x + Math.cos(b.orbitAngle) * b.orbitRadius;
+        b.y = parent.y + Math.sin(b.orbitAngle) * b.orbitRadius;
+
+        const vOrb = (b.orbitAngularVelocity ?? 0.02) * b.orbitRadius;
+        b.vx = parent.vx - Math.sin(b.orbitAngle) * vOrb;
+        b.vy = parent.vy + Math.cos(b.orbitAngle) * vOrb;
+        b.ax = parent.ax;
+        b.ay = parent.ay;
+      } else {
+        // Parent was destroyed or deleted: release into free space
+        b.parentBodyId = undefined;
+        b.orbitRadius = undefined;
+      }
+    }
+  }
+
   // Step 4: Particles and Gas accretion
   updateParticlesPhysics(particles, bodies, G, eps, dt, settings.maxParticles ?? 1000);
 }
@@ -905,17 +1058,27 @@ function updateStarInternalThermodynamics(
   // --- Active Star Physics & Automatic Evolution ---
   b.stellarAge = (b.stellarAge ?? 0) + dt;
 
-  // Mass-dependent burn rate according to astrophysics (L ~ M^3.5, burn rate ~ M^2.15)
+  // Mass-dependent burn rate according to astrophysics (L ~ M^3.5, burn rate scales smoothly with mass)
   const massRatio = Math.max(0.35, b.mass);
-  const massFactor = Math.pow(massRatio, 2.15);
+  const massFactor = Math.pow(massRatio, 0.55);
   const evoMultiplier = settings.stellarEvolution !== false ? (settings.stellarEvolutionSpeed ?? 1.0) : 0;
-  const burnRate = 0.00065 * massFactor * evoMultiplier * dt;
+  const burnRate = 0.00010 * massFactor * evoMultiplier * dt;
 
-  // Adiabatic compression / core heating based on gravitational mass and core density
-  const safeR = Math.max(3.0, b.radius);
-  const compressionRatio = (b.mass * 12.0) / safeR;
-  const fuelExhaustion = (1.0 - b.composition.H) * 4.5 + b.composition.C * 8.0 + b.composition.Fe * 16.0;
-  let dynamicTcore = Math.max(10.0, compressionRatio * (1.0 + fuelExhaustion));
+  // Internal core thermodynamics: core contraction heats the core as fuel is depleted
+  const baseTcore = Math.max(14.0, 16.0 * Math.pow(massRatio, 0.40));
+  const hDepleted = Math.max(0, 1.0 - (b.composition.H / 0.74));
+  const heDepleted = Math.max(0, b.composition.C + b.composition.Fe);
+  const feAccum = b.composition.Fe;
+
+  let dynamicTcore = baseTcore * (1.0 + hDepleted * 1.5);
+  // Helium burning core contraction: occurs as Hydrogen drops below 15%
+  if (b.composition.H < 0.15) {
+    dynamicTcore = Math.max(dynamicTcore, 120.0 * Math.pow(Math.max(0.6, b.mass), 0.25) * (1.0 + heDepleted * 1.8));
+  }
+  // Advanced carbon/silicon core collapse (M >= 8 M☉): occurs when Helium is depleted and carbon fuses
+  if (b.mass >= 8.0 && b.composition.H < 0.05 && b.composition.He < 0.20) {
+    dynamicTcore = Math.max(dynamicTcore, 550.0 * (1.0 + feAccum * 3.5));
+  }
 
   if (b.mass < 8.0) {
     // Quantum electron degeneracy limits core temperature before carbon flash
@@ -935,8 +1098,8 @@ function updateStarInternalThermodynamics(
   }
 
   // Step 2: Helium Fusion (3-alpha 4He -> 12C) when Tcore >= 90.0 million K and H is depleted
-  if (b.Tcore >= 90.0 && b.composition.He > 0.002 && b.composition.H < 0.35) {
-    const rateHe = Math.min(b.composition.He, burnRate * 1.6 * Math.max(0.6, b.Tcore / 100.0));
+  if (b.Tcore >= 90.0 && b.composition.He > 0.002 && b.composition.H < 0.15) {
+    const rateHe = Math.min(b.composition.He, burnRate * 2.0 * Math.max(0.6, b.Tcore / 100.0));
     b.composition.He -= rateHe;
     b.composition.C += rateHe;
     energyRelease += rateHe * 450.0;
@@ -944,7 +1107,7 @@ function updateStarInternalThermodynamics(
   }
 
   // Step 3: Carbon to Iron Fusion (12C -> 56Fe) when Tcore >= 450.0 million K (Only for M >= 8 M☉!)
-  if (b.mass >= 8.0 && b.Tcore >= 450.0 && b.composition.C > 0.002 && b.composition.He < 0.40) {
+  if (b.mass >= 8.0 && b.Tcore >= 450.0 && b.composition.C > 0.002 && b.composition.He < 0.20) {
     const rateC = Math.min(b.composition.C, burnRate * 2.8 * Math.max(0.6, b.Tcore / 500.0));
     b.composition.C -= rateC;
     b.composition.Fe += rateC;
@@ -961,6 +1124,9 @@ function updateStarInternalThermodynamics(
     b.composition.Fe /= totalComp;
   }
 
+  // Safe radius for envelope calculations
+  const safeR = Math.max(3.0, b.radius);
+
   // --- Hydrostatic Balance & Envelope Dynamics ---
   // P_grav ~ M^2 / R^3.5
   b.P_grav = (b.mass * b.mass) / Math.pow(safeR / 10.0, 3.5);
@@ -975,13 +1141,14 @@ function updateStarInternalThermodynamics(
   const P_out = b.P_gas + b.P_rad;
   b.balanceRatio = P_out / Math.max(0.0001, b.P_grav);
 
-  // Envelope Target Radius (Expansion in giant stages)
+  // Envelope Target Radius (Main sequence stability & Expansion in giant stages)
+  const baseMsRadius = b.planetKey === 'sun' ? 36.0 : Math.max(10.0, Math.pow(b.mass, 0.5) * 16.0);
   if (b.evolutionStage === 'red_giant') {
-    b.targetRadius = Math.max(20.0, Math.pow(b.mass, 0.6) * 22.0);
+    b.targetRadius = baseMsRadius * 1.85;
   } else if (b.evolutionStage === 'supergiant' || b.evolutionStage === 'iron_crisis') {
-    b.targetRadius = Math.max(24.0, Math.pow(b.mass, 0.65) * 16.0);
+    b.targetRadius = baseMsRadius * 2.3;
   } else {
-    b.targetRadius = Math.max(7.0, Math.pow(b.mass, 0.7) * 12.0);
+    b.targetRadius = baseMsRadius;
   }
 
   // Radial dynamic oscillation and envelope breathing
@@ -1196,4 +1363,126 @@ function updateParticlesPhysics(
       particles.push(...newSplinterParticles.slice(0, spaceLeft));
     }
   }
+}
+
+/**
+ * Astrophysical Circumstellar Habitable Zone (Goldilocks Zone)
+ * Calculates the inner (runaway greenhouse) and outer (maximum greenhouse / snowline)
+ * boundaries based on Kopparapu et al. (2013) NASA Astrobiology models.
+ */
+export interface HabitableZone {
+  innerRadius: number;  // in simulation pixels/world coordinates
+  outerRadius: number;  // in simulation pixels/world coordinates
+  innerAU: number;      // in Astronomical Units
+  outerAU: number;      // in Astronomical Units
+  luminosity: number;   // in Solar Luminosities L☉
+}
+
+export function calculateHabitableZone(star: CelestialBody): HabitableZone {
+  // Remnants without active radiant thermonuclear fusion
+  if (star.remnantType === 'black_hole') {
+    return { innerRadius: 0, outerRadius: 0, innerAU: 0, outerAU: 0, luminosity: 0 };
+  }
+
+  // Calculate or estimate bolometric luminosity relative to Sun:
+  // L/L_sun ~ M^3.5 for Main Sequence (or Stefan-Boltzmann: (R/R_sun)^2 * (T_eff / 5778)^4)
+  let L = star.luminosity;
+  if (!L || L <= 0) {
+    if (star.mass >= 0.08) {
+      if (star.mass < 0.43) {
+        L = 0.23 * Math.pow(star.mass, 2.3);
+      } else if (star.mass < 2.0) {
+        L = Math.pow(star.mass, 4.0);
+      } else if (star.mass < 20.0) {
+        L = 1.5 * Math.pow(star.mass, 3.5);
+      } else {
+        L = 3200 * star.mass;
+      }
+    } else {
+      L = 0.0001;
+    }
+  }
+
+  // Kopparapu et al. (2013) Habitable Zone boundaries in AU:
+  // Runaway greenhouse limit: S_eff ~ 1.08 => R_inner = sqrt(L / 1.08)
+  // Maximum greenhouse limit (snowline): S_eff ~ 0.45 => R_outer = sqrt(L / 0.45)
+  const innerAU = Math.sqrt(Math.max(0.0001, L / 1.08));
+  const outerAU = Math.sqrt(Math.max(0.0001, L / 0.45));
+
+  // Simulation spatial scale: 1 AU = 220 world units (calibrated to Solar System preset Earth distance)
+  const AU_PIXELS = 220;
+  const innerRadius = innerAU * AU_PIXELS;
+  const outerRadius = outerAU * AU_PIXELS;
+
+  return {
+    innerRadius,
+    outerRadius,
+    innerAU,
+    outerAU,
+    luminosity: L
+  };
+}
+
+/**
+ * Planetary Climate & Insolation Assessment
+ * Computes radiant flux, equilibrium surface temperature, and astrobiological status.
+ */
+export interface PlanetaryClimate {
+  distanceAU: number;
+  insolationPercent: number; // relative to Earth (100%)
+  equilibriumTempK: number;  // surface temperature in Kelvin
+  equilibriumTempC: number;  // surface temperature in Celsius
+  status: 'runaway_greenhouse' | 'habitable_goldilocks' | 'frozen_cryosphere';
+  statusTitle: string;
+  statusDesc: string;
+}
+
+export function calculatePlanetaryClimate(planet: CelestialBody, star: CelestialBody): PlanetaryClimate {
+  const dist = Math.hypot(planet.x - star.x, planet.y - star.y);
+  const AU_PIXELS = 220;
+  const distAU = Math.max(0.01, dist / AU_PIXELS);
+
+  const hz = calculateHabitableZone(star);
+  const L = Math.max(0.0001, hz.luminosity);
+
+  // Stellar radiative flux relative to Earth: S = L / d^2
+  const insolationPercent = (L / (distAU * distAU)) * 100;
+
+  // Planetary Equilibrium Temperature:
+  // T_eq = T_star * sqrt(R_star / (2 * D)) * (1 - A)^(1/4)
+  const bondAlbedo = planet.planetKey === 'venus' ? 0.75 : planet.planetKey === 'mercury' ? 0.07 : 0.3;
+  const starTemp = star.Teff || 5778;
+  const starRadiusM = (Math.max(1, star.radius) / 32) * 696340000;
+  const distM = distAU * 149597870700;
+
+  const Teq = starTemp * Math.sqrt(starRadiusM / (2 * distM)) * Math.pow(1 - bondAlbedo, 0.25);
+
+  // Natural greenhouse effect bonus
+  const greenhouseBonus = planet.planetKey === 'venus' ? 460 : planet.planetKey === 'earth' ? 33 : planet.planetKey === 'mars' ? 5 : 12;
+  const TsurfaceK = Math.max(3, Math.round(Teq + greenhouseBonus));
+  const TsurfaceC = TsurfaceK - 273;
+
+  let status: PlanetaryClimate['status'] = 'habitable_goldilocks';
+  let statusTitle = 'ЗОНА ЗЛАТОВЛАСКИ (ЖИДКАЯ ВОДА)';
+  let statusDesc = `Умеренная инсоляция (${insolationPercent.toFixed(0)}% от земной). Возможно существование жидких океанов и стабильной гидросферы.`;
+
+  if (dist < hz.innerRadius) {
+    status = 'runaway_greenhouse';
+    statusTitle = 'СВЕРХКРИТИЧЕСКИЙ ПАРНИК';
+    statusDesc = `Избыточная инсоляция (${insolationPercent.toFixed(0)}% от земной). Вода полностью испарена, атмосфера раскалена.`;
+  } else if (dist > hz.outerRadius) {
+    status = 'frozen_cryosphere';
+    statusTitle = 'КРИОСФЕРА (ЛЕДЯНОЙ МИР)';
+    statusDesc = `Слабая инсоляция (${insolationPercent.toFixed(0)}% от земной). Температура ниже точки замерзания, вечный лёд.`;
+  }
+
+  return {
+    distanceAU: distAU,
+    insolationPercent,
+    equilibriumTempK: TsurfaceK,
+    equilibriumTempC: TsurfaceC,
+    status,
+    statusTitle,
+    statusDesc
+  };
 }

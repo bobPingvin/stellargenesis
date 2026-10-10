@@ -21,7 +21,8 @@ import {
   Sliders,
   ChevronUp,
   ChevronDown,
-  Compass
+  Compass,
+  Film
 } from 'lucide-react';
 import { ToolType, CelestialBody } from '../types';
 
@@ -33,7 +34,7 @@ interface QuickDockProps {
   onToggleFollow: () => void;
   onPumpMass: () => void;
   onFeedBlackHole?: (amount: number) => void;
-  onTriggerSupernova: () => void;
+  onTriggerSupernova?: () => void;
   onDeleteBody: () => void;
   spawnMass: number;
   onUpdateSpawnMass: (mass: number) => void;
@@ -41,6 +42,8 @@ interface QuickDockProps {
   onTogglePause: () => void;
   onOpenMenu?: () => void;
   onOpen3D?: () => void;
+  onToggleCinematic?: () => void;
+  isCinematicMode?: boolean;
 }
 
 export const QuickDock: React.FC<QuickDockProps> = ({
@@ -58,7 +61,9 @@ export const QuickDock: React.FC<QuickDockProps> = ({
   isPaused,
   onTogglePause,
   onOpenMenu,
-  onOpen3D
+  onOpen3D,
+  onToggleCinematic,
+  isCinematicMode = false
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showMassSlider, setShowMassSlider] = useState<boolean>(false);
@@ -111,7 +116,9 @@ export const QuickDock: React.FC<QuickDockProps> = ({
   const quickMassOptions = [0.5, 1.0, 3.0, 8.0, 25.0];
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-none select-none max-w-[95vw]">
+    <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-none select-none max-w-[95vw] transition-all duration-500 ease-in-out ${
+      isCinematicMode ? 'opacity-0 translate-y-full pointer-events-none invisible' : 'opacity-100 translate-y-0'
+    }`}>
       {/* Mass adjustment popover if star or black hole is selected tool */}
       {(currentTool === 'spawn_star' || currentTool === 'spawn_blackhole' || showMassSlider) && (
         <div className="glass-panel px-3 py-1.5 rounded-2xl flex items-center gap-3 text-xs pointer-events-auto border border-amber-500/30 shadow-xl animate-fade-in">
@@ -206,18 +213,6 @@ export const QuickDock: React.FC<QuickDockProps> = ({
             </button>
           )}
 
-          {/* Supernova for Stars */}
-          {!selectedBody.isRemnant && (
-            <button
-              onClick={onTriggerSupernova}
-              title="Вспышка Сверхновой"
-              className="px-2 py-1 rounded-xl bg-rose-950/80 border border-rose-500/50 text-rose-300 hover:bg-rose-900 text-xs font-mono transition flex items-center gap-1"
-            >
-              <Flame size={12} className="text-rose-400" />
-              <span className="text-[11px]">Сверхновая</span>
-            </button>
-          )}
-
           {/* Delete Object */}
           <button
             onClick={onDeleteBody}
@@ -286,6 +281,18 @@ export const QuickDock: React.FC<QuickDockProps> = ({
           >
             <Sliders size={13} className="text-cyan-400" />
             <span className="hidden md:inline text-[11px]">Меню</span>
+          </button>
+        )}
+
+        {/* Cinematic mode quick toggle */}
+        {onToggleCinematic && (
+          <button
+            onClick={onToggleCinematic}
+            title="Кинорежим — скрыть интерфейс (H)"
+            className="px-2.5 py-1.5 rounded-xl bg-slate-900/70 border border-slate-800 text-slate-300 hover:text-cyan-300 hover:bg-slate-800 text-xs font-mono transition flex items-center gap-1.5"
+          >
+            <Film size={13} className="text-cyan-400" />
+            <span className="hidden lg:inline text-[11px]">Кино (H)</span>
           </button>
         )}
       </div>

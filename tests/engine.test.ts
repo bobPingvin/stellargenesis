@@ -8,7 +8,8 @@ import {
   computeDopplerFromVx,
   getDopplerBeamingIntensity,
   applyDopplerToColor,
-  triggerStarCollapse
+  triggerStarCollapse,
+  getRemainingFuelPercent
 } from '../src/physics/engine';
 import { CelestialBody, Particle, SimulationSettings } from '../src/types';
 
@@ -218,5 +219,116 @@ describe('Astrophysical Stellar Collapse & Mass Limits', () => {
 
     expect(star.remnantType).toBe('black_hole');
     expect(star.evolutionStage).toBe('black_hole');
+  });
+
+  it('должен рассчитывать уровень термоядерного топлива звезды от 100% до 0%', () => {
+    const starFresh = createBody({
+      mass: 1.0,
+      composition: { H: 0.74, He: 0.24, C: 0.018, Fe: 0.002 }
+    });
+    expect(getRemainingFuelPercent(starFresh)).toBe(100);
+
+    const starMidAge = createBody({
+      mass: 1.0,
+      composition: { H: 0.35, He: 0.63, C: 0.018, Fe: 0.002 }
+    });
+    expect(getRemainingFuelPercent(starMidAge)).toBeLessThan(100);
+    expect(getRemainingFuelPercent(starMidAge)).toBeGreaterThan(40);
+
+    const starExhausted = createBody({
+      mass: 1.0,
+      composition: { H: 0.0, He: 0.02, C: 0.96, Fe: 0.02 }
+    });
+    expect(getRemainingFuelPercent(starExhausted)).toBeLessThanOrEqual(5);
+
+    const whiteDwarf = createBody({
+      mass: 0.6,
+      remnantType: 'white_dwarf'
+    });
+    expect(getRemainingFuelPercent(whiteDwarf)).toBe(0);
+  });
+
+  it('должен автономно расходовать топливо звезды в цикле симуляции со временем', () => {
+    const star = createBody({
+      mass: 10.0,
+      composition: { H: 0.74, He: 0.24, C: 0.018, Fe: 0.002 }
+    });
+    const evoSettings: SimulationSettings = {
+      G: 1.2,
+      softening: 8.0,
+      timeSpeed: 1,
+      showTrails: false,
+      showVectors: false,
+      soundEnabled: false,
+      dopplerEffect: true,
+      stellarEvolution: true,
+      stellarEvolutionSpeed: 2.0,
+      graphicsQuality: 'balanced',
+      enableLensingShader: false,
+      maxParticles: 500,
+      showSpacetimeGrid: false,
+      adaptiveGrid: false
+    };
+
+    const initialFuel = getRemainingFuelPercent(star);
+    const initialH = star.composition.H;
+
+    // Simulate 120 steps
+    for (let i = 0; i < 120; i++) {
+      stepPhysics([star], [], evoSettings, 0.035, () => {});
+    }
+
+    expect(star.composition.H).toBeLessThan(initialH);
+    expect(getRemainingFuelPercent(star)).toBeLessThan(initialFuel);
+  });
+
+  it('должен поглощать и испарять тела, попадающие в фотосферу звезды (Солнца)', () => {
+    const sun = createBody({
+      name: 'Солнце',
+      planetKey: 'sun',
+      mass: 1.0,
+      radius: 36.0,
+      x: 0,
+      y: 0
+    });
+    const comet = createBody({
+      name: 'Падающая комета',
+      isPlanet: true,
+      mass: 0.005,
+      radius: 2.0,
+      x: 35.0, // Inside stellar radius (36.0)
+      y: 0,
+      vx: -1.0,
+      vy: 0
+    });
+
+    const bodies = [sun, comet];
+    const particles: Particle[] = [];
+    const removed: CelestialBody[] = [];
+    const simSettings: SimulationSettings = {
+      G: 1.2,
+      softening: 8.0,
+      timeSpeed: 1,
+      showTrails: false,
+      showVectors: false,
+      soundEnabled: false,
+      dopplerEffect: true,
+      stellarEvolution: false,
+      stellarEvolutionSpeed: 1.0,
+      graphicsQuality: 'balanced',
+      enableLensingShader: false,
+      maxParticles: 500,
+      showSpacetimeGrid: false,
+      adaptiveGrid: false
+    };
+
+    stepPhysics(bodies, particles, simSettings, 0.035, (victim) => {
+      removed.push(victim);
+    });
+
+    expect(removed).toHaveLength(1);
+    expect(removed[0].name).toBe('Падающая комета');
+    expect(sun.mass).toBeCloseTo(1.005, 4);
+    expect(particles.length).toBeGreaterThan(0); // Solar flare plasma splash particles
   });
 });

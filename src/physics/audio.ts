@@ -233,6 +233,32 @@ class SoundEngine {
   }
 
   /**
+   * UI Click / subtle futuristic interface chirp
+   */
+  public playUiClick() {
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(640, t);
+    osc.frequency.exponentialRampToValueAtTime(880, t + 0.04);
+
+    gain.gain.setValueAtTime(0.04, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.04);
+  }
+
+  /**
    * Tidal disruption event (TDE) deep gravitational sub-bass & relativistic shredding
    */
   public playTidalDisruption() {

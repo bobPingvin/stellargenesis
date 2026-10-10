@@ -55,6 +55,8 @@ interface FlyoutMenuProps {
   onClearAll: () => void;
   onOpenGuide: () => void;
   onResetCamera: () => void;
+  isCinematicMode?: boolean;
+  onOpenMainMenu?: () => void;
 }
 
 type TabKey = 'tools' | 'presets' | 'nebula' | 'physics';
@@ -75,13 +77,23 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   onGenerateNebula,
   onClearAll,
   onOpenGuide,
-  onResetCamera
+  onResetCamera,
+  isCinematicMode = false,
+  onOpenMainMenu
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isPinned, setIsPinned] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabKey>('tools');
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
+
+  // Close drawer and unpin immediately if entering cinematic mode
+  useEffect(() => {
+    if (isCinematicMode) {
+      setIsOpen(false);
+      setIsPinned(false);
+    }
+  }, [isCinematicMode]);
 
   // Quick mass presets for star spawner
   const quickMasses = [
@@ -93,6 +105,7 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   ];
 
   const handleMouseEnter = () => {
+    if (isCinematicMode) return;
     if (closeTimeoutRef.current) {
       clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
@@ -174,12 +187,16 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
 
   return (
     <div
-      className="fixed top-0 left-0 bottom-0 z-40 pointer-events-none"
+      className={`fixed top-0 left-0 bottom-0 z-40 pointer-events-none transition-all duration-500 ease-in-out ${
+        isCinematicMode ? 'opacity-0 -translate-x-full pointer-events-none invisible' : 'opacity-100 translate-x-0'
+      }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {/* Floating Trigger Button (Top-Left) */}
-      <div className="absolute top-3 left-3 pointer-events-auto">
+      <div className={`absolute top-3 left-3 transition-all duration-300 ${
+        isCinematicMode ? 'opacity-0 -translate-x-full pointer-events-none invisible' : 'opacity-100 pointer-events-auto translate-x-0'
+      }`}>
         <button
           onClick={handleToggleOpen}
           className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl transition-all duration-200 shadow-2xl ${
@@ -205,7 +222,7 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
       <div
         ref={drawerRef}
         className={`pointer-events-auto absolute top-0 left-0 bottom-0 w-88 max-w-[90vw] bg-slate-950/95 backdrop-blur-2xl border-r border-slate-800/80 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+          isOpen && !isCinematicMode ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Drawer Header */}
@@ -644,6 +661,26 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
                 </label>
 
                 <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+                  <span>Маркер барицентра (центра масс системы)</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.showBarycenter !== false}
+                    onChange={e => onUpdateSettings({ showBarycenter: e.target.checked })}
+                    className="accent-cyan-500 w-4 h-4 rounded cursor-pointer"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+                  <span>Плазменные протуберанцы и корона звёзд</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.showProminences !== false}
+                    onChange={e => onUpdateSettings({ showProminences: e.target.checked })}
+                    className="accent-cyan-500 w-4 h-4 rounded cursor-pointer"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
                   <span>WebGL шейдер гравитационного линзирования</span>
                   <input
                     type="checkbox"
@@ -699,6 +736,19 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
 
         {/* Drawer Footer Actions */}
         <div className="p-4 border-t border-slate-800/80 bg-slate-900/60 space-y-2">
+          {onOpenMainMenu && (
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                onOpenMainMenu();
+              }}
+              className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 border border-cyan-500/40 text-cyan-200 hover:text-white hover:from-cyan-500/30 hover:to-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm shadow-cyan-950/40"
+            >
+              <Sparkles size={14} className="text-cyan-400" />
+              <span>Главное меню (M / ESC)</span>
+            </button>
+          )}
+
           <button
             onClick={onOpenGuide}
             className="w-full py-2 px-3 rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/80 text-xs font-mono flex items-center justify-center gap-2 transition"

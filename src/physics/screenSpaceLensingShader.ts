@@ -325,8 +325,10 @@ export class GravitationalLensingShader {
     // Draw Full-Screen Quad
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    // Draw result onto target context
-    targetCtx.drawImage(this.glCanvas, 0, 0, width, height);
+    // Draw result onto target context in CSS client coordinates
+    const cssW = targetCtx.canvas.clientWidth || (width / (window.devicePixelRatio || 1));
+    const cssH = targetCtx.canvas.clientHeight || (height / (window.devicePixelRatio || 1));
+    targetCtx.drawImage(this.glCanvas, 0, 0, cssW, cssH);
     return true;
   }
 
