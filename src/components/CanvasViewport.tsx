@@ -16,8 +16,12 @@ import {
   applyDopplerToColor,
   computeDopplerFromVx,
   SPEED_OF_LIGHT,
+<<<<<<< HEAD
   handleInelasticBodyCollision,
   calculateHabitableZone
+=======
+  handleInelasticBodyCollision
+>>>>>>> origin/main
 } from '../physics/engine';
 import { renderProceduralCosmos, SECTOR_SIZE } from '../physics/proceduralUniverse';
 import { renderSpacetimeFabric, GLOBAL_ACCRETION_POOL } from '../physics/gravitationalLensing';
@@ -69,7 +73,10 @@ interface CanvasViewportProps {
   onSelectTool?: (tool: ToolType) => void;
   onInspect3D?: (body: CelestialBody) => void;
   onSyncSelectedBody?: (body: CelestialBody | null) => void;
+<<<<<<< HEAD
   isCinematicMode?: boolean;
+=======
+>>>>>>> origin/main
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -100,8 +107,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onStopVelocity,
   onSelectTool,
   onInspect3D,
+<<<<<<< HEAD
   onSyncSelectedBody,
   isCinematicMode = false
+=======
+  onSyncSelectedBody
+>>>>>>> origin/main
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
