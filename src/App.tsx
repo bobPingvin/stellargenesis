@@ -321,7 +321,6 @@ export default function App() {
     handleFeedBlackHole: (_amt: number) => {},
     handlePumpMass: () => {},
     handleReduceMass: () => {},
-<<<<<<< HEAD
     handleDeleteBody: () => {},
     handleCloseMainMenu: () => {}
   });
@@ -335,11 +334,6 @@ export default function App() {
     }
   }, [hasStartedSimulation]);
 
-=======
-    handleDeleteBody: () => {}
-  });
-
->>>>>>> origin/main
   // Load preset scenario
   const loadPreset = useCallback((presetId: PresetId) => {
     if (bodiesRef.current.length > 0) {
@@ -401,7 +395,6 @@ export default function App() {
     }
   }, [selectedBody, followingBodyId]);
 
-<<<<<<< HEAD
   // Open 3D inspector from Main Menu
   const handleOpen3DFromMenu = useCallback((body?: CelestialBody) => {
     if (body) {
@@ -416,8 +409,6 @@ export default function App() {
     }
   }, [selectedBodyId, bodies]);
 
-=======
->>>>>>> origin/main
   // Pump mass into selected body (immutable update)
   const handlePumpMass = useCallback(() => {
     if (!selectedBody) return;
@@ -524,12 +515,8 @@ export default function App() {
     handleFeedBlackHole,
     handlePumpMass,
     handleReduceMass,
-<<<<<<< HEAD
     handleDeleteBody,
     handleCloseMainMenu
-=======
-    handleDeleteBody
->>>>>>> origin/main
   };
 
   // Clear all
@@ -709,10 +696,7 @@ export default function App() {
           setIs3DInspectorOpen(true);
         }}
         onSyncSelectedBody={handleSyncSelectedBody}
-<<<<<<< HEAD
         isCinematicMode={isCinematicMode}
-=======
->>>>>>> origin/main
       />
 
       {/* Slide-out Flyout Menu (Left drawer housing all tools, scenarios, nebula generator & settings) */}
@@ -826,7 +810,6 @@ export default function App() {
       </div>
 
       {/* Detailed Star Inspector (Rendered ONLY when an object is selected) */}
-<<<<<<< HEAD
       <div className={`absolute top-0 right-0 bottom-0 z-30 pointer-events-none transition-all duration-500 ease-in-out ${isCinematicMode ? 'opacity-0 translate-x-full invisible' : 'opacity-100 translate-x-0'}`}>
         <StarInspector
           selectedBody={selectedBody}
@@ -859,21 +842,6 @@ export default function App() {
           <kbd className="px-1.5 py-0.5 bg-slate-800/80 border border-slate-700 rounded text-[10px] text-cyan-300 font-bold">H</kbd>
         </button>
       )}
-=======
-      <StarInspector
-        selectedBody={selectedBody}
-        followingBody={followingBody}
-        evolutionSpeed={settings.stellarEvolutionSpeed ?? 1.0}
-        onUpdateEvolutionSpeed={(spd) => setSettings(prev => ({ ...prev, stellarEvolutionSpeed: spd }))}
-        onToggleFollow={handleToggleFollow}
-        onPumpMass={handlePumpMass}
-        onFeedBlackHole={handleFeedBlackHole}
-        onTriggerSupernova={handleTriggerSupernova}
-        onDeleteBody={handleDeleteBody}
-        onClose={() => handleSetSelectedBody(null)}
-        onOpen3D={() => setIs3DInspectorOpen(true)}
-      />
->>>>>>> origin/main
 
       {/* 3D Celestial Inspection Fullscreen Overlay */}
       {is3DInspectorOpen && selectedBody && (

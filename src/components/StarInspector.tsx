@@ -21,10 +21,7 @@ interface StarInspectorProps {
   onOpen3D?: () => void;
   evolutionSpeed?: number;
   onUpdateEvolutionSpeed?: (speed: number) => void;
-<<<<<<< HEAD
   isCinematicMode?: boolean;
-=======
->>>>>>> origin/main
 }
 
 export const StarInspector: React.FC<StarInspectorProps> = ({
@@ -38,12 +35,8 @@ export const StarInspector: React.FC<StarInspectorProps> = ({
   onClose,
   onOpen3D,
   evolutionSpeed,
-<<<<<<< HEAD
   onUpdateEvolutionSpeed,
   isCinematicMode = false
-=======
-  onUpdateEvolutionSpeed
->>>>>>> origin/main
 }) => {
   // If no body is selected, don't show inspector to keep interface completely clean
   if (!selectedBody) {
